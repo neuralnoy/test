@@ -8,9 +8,8 @@ class InputFeedbackForm(BaseModel):
 
 class OutputFeedbackForm(BaseModel):
     id: str
+    taskId: str
     ai_hashtag: str
     hashtag: str
     summary: str
-
-    
-
+    message: str
