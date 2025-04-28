@@ -53,20 +53,32 @@ class AsyncServiceBusHandler:
         self.receive_max_wait_time = receive_max_wait_time # Max time for one receive_messages call
 
     async def _check_connection_health(self) -> bool:
-        """Simplified check: Assumes healthy unless an error forced reconnection."""
-        # Primarily checks if resources are initialized. Actual health is determined by operation success/failure.
-        if not self.servicebus_client or not self.receiver or not self.sender:
-            logger.warning("Connection check failed: Resources not initialized.")
+        """Check if the Service Bus connection is healthy."""
+        # Check if all required components are initialized
+        if not all([self.servicebus_client, self.receiver, self.sender]):
+            logger.warning("Connection check failed: One or more components not initialized.")
             self.connection_healthy = False
             return False
             
         # If an error handler set this to False, respect it.
         if not self.connection_healthy:
-             logger.warning("Connection check failed: Marked unhealthy by previous error.")
-             return False
+            logger.warning("Connection check failed: Marked unhealthy by previous error.")
+            return False
 
-        # Assume healthy otherwise. Let operations prove otherwise.
-        logger.debug("Connection check: Assuming healthy.")
+        # Try a simple operation to verify the connection is actually working
+        try:
+            # This is a lightweight check that doesn't actually send/receive messages
+            if not self.servicebus_client._connection:
+                logger.warning("Connection check failed: Service Bus client has no active connection.")
+                self.connection_healthy = False
+                return False
+        except Exception as e:
+            logger.warning(f"Connection check failed during health verification: {str(e)}")
+            self.connection_healthy = False
+            return False
+
+        # If we get here, assume the connection is healthy
+        logger.debug("Connection check: All components initialized and connection appears healthy.")
         return True
 
     async def _ensure_connection(self) -> bool:
@@ -79,6 +91,12 @@ class AsyncServiceBusHandler:
             try:
                 await self._cleanup_resources() # Clean up before attempting init
                 await self.initialize()
+                
+                # Verify all components are properly initialized
+                if not all([self.servicebus_client, self.receiver, self.sender]):
+                    logger.error(f"Failed to initialize all components on attempt {attempt + 1}")
+                    continue
+                    
                 logger.info(f"Successfully reinitialized connection on attempt {attempt + 1}")
                 self.connection_healthy = True # Mark as healthy after successful init
                 return True
@@ -222,10 +240,13 @@ class AsyncServiceBusHandler:
         # Simplified: Rely on SDK's built-in retry for sending
         try:
             if not self.sender:
-                 logger.error("Sender not initialized. Cannot send message.")
-                 # Optionally: raise an error or try to re-initialize sender?
-                 # For now, just log and return. Reconnection logic should handle sender re-init.
-                 return
+                logger.warning("Sender not initialized. Attempting to reinitialize...")
+                if not await self._ensure_connection():
+                    logger.error("Failed to reinitialize sender. Cannot send message.")
+                    return
+                if not self.sender:
+                    logger.error("Sender still not initialized after reconnection attempt.")
+                    return
 
             if isinstance(message_body, str):
                 message = ServiceBusMessage(message_body)
