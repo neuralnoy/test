@@ -3,6 +3,8 @@ Azure OpenAI Service for making API calls to Azure-hosted OpenAI models.
 """
 import os
 import json
+import asyncio
+import tiktoken
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Callable
 
@@ -10,6 +12,9 @@ from azure.identity import DefaultAzureCredential
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 from common.logger import get_logger
+
+# Import TokenClient from app_counter
+from apps.app_counter.services.token_client import TokenClient
 
 logger = get_logger("common")
 
@@ -19,18 +24,25 @@ class AzureOpenAIService:
     """
     Service for interacting with Azure-hosted OpenAI models.
     Provides functionality for authentication, prompt management, and API calls.
+    Includes token usage tracking to prevent rate limit issues.
     """
     
-    def __init__(self, model: Optional[str] = None):
+    def __init__(self, model: Optional[str] = None, app_id: str = "default_app", token_counter_url: str = "http://localhost:8001"):
         """
         Initialize the Azure OpenAI service with credentials from environment variables.
         
         Args:
             model: Optional default model to use. If not specified, uses the AZURE_OPENAI_DEPLOYMENT_NAME from .env.
+            app_id: ID of the application using this service. Used for token tracking.
+            token_counter_url: URL of the token counter service.
         """
         self.api_version = os.getenv("AZURE_OPENAI_API_VERSION")
         self.azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.default_model = model or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")
+        self.app_id = app_id
+        
+        # Initialize token client
+        self.token_client = TokenClient(app_id=app_id, base_url=token_counter_url)
         
         if not self.api_version or not self.azure_endpoint:
             raise ValueError("AZURE_OPENAI_API_VERSION and AZURE_OPENAI_ENDPOINT must be set in .env file or exported as environment variables")
@@ -67,7 +79,99 @@ class AzureOpenAIService:
             azure_ad_token_provider=self._get_bearer_token_provider()
         )
     
-    def chat_completion(
+    def _get_encoding_for_model(self, model: str) -> Any:
+        """
+        Get the correct tokenizer for the specified model.
+        
+        Args:
+            model: Model name or deployment name
+            
+        Returns:
+            Tiktoken encoding for the model
+        """
+        try:
+            # For Azure deployments, needs to map to base model names
+            # This is a simplified mapping - check if this is correct!!!
+            model_mapping = {
+                "gpt-4": "gpt-4",
+                "gpt-4-32k": "gpt-4-32k",
+                "gpt-3.5-turbo": "gpt-3.5-turbo",
+                "text-embedding-ada-002": "text-embedding-ada-002"
+            }
+            
+            # Try to get a direct encoding for the model
+            try:
+                return tiktoken.encoding_for_model(model)
+            except KeyError:
+                # If the model is not found directly, try to find it in our mapping
+                for base_model, openai_model in model_mapping.items():
+                    if base_model in model.lower():
+                        return tiktoken.encoding_for_model(openai_model)
+                
+                # Fall back to cl100k_base for newer models
+                logger.warning(f"Model {model} not found, falling back to cl100k_base encoding")
+                return tiktoken.get_encoding("cl100k_base")
+        except Exception as e:
+            logger.warning(f"Error getting encoding for model {model}: {str(e)}. Falling back to cl100k_base encoding.")
+            return tiktoken.get_encoding("cl100k_base")
+    
+    def _count_tokens_for_message(self, message: Dict[str, str], encoding: Any) -> int:
+        """
+        Count tokens for a single message.
+        
+        Args:
+            message: A single message dictionary
+            encoding: Tiktoken encoding to use
+            
+        Returns:
+            int: Number of tokens in the message
+        """
+        # Per OpenAI's documentation about token counting in chat API:
+        # https://platform.openai.com/docs/guides/chat/managing-tokens
+        
+        # Count tokens in message content
+        content = message.get("content", "")
+        token_count = len(encoding.encode(content))
+        
+        # Add tokens for message metadata
+        # Every message follows <im_start>{role/name}\n{content}<im_end>\n
+        token_count += 4  # For im_start, role, im_end, and final \n
+        
+        # If there's a name field, count those tokens too
+        if "name" in message:
+            token_count += len(encoding.encode(message["name"]))
+        
+        return token_count
+    
+    def _estimate_token_count(self, messages: List[Dict[str, str]], model: str, max_tokens: Optional[int] = None) -> int:
+        """
+        Estimate token count for a request using tiktoken for accurate counting.
+        
+        Args:
+            messages: Messages to estimate tokens for
+            model: Model to use for encoding
+            max_tokens: Maximum completion tokens
+            
+        Returns:
+            int: Estimated token count
+        """
+        # Get the appropriate encoding for the model
+        encoding = self._get_encoding_for_model(model)
+        
+        # Token count starts with a base for the model
+        token_count = 3  # Every reply is primed with <|start|>assistant<|message|>
+        
+        # Count tokens in each message
+        for message in messages:
+            token_count += self._count_tokens_for_message(message, encoding)
+        
+        # Add estimated completion tokens
+        completion_tokens = max_tokens or 1000  # Default to 1000 if not specified
+        token_count += completion_tokens
+        
+        return token_count
+    
+    async def chat_completion(
         self, 
         messages: List[Dict[str, str]], 
         model: Optional[str] = None,
@@ -81,6 +185,7 @@ class AzureOpenAIService:
     ) -> Dict[str, Any]:
         """
         Generate a chat completion using the specified Azure OpenAI model.
+        This method now includes token tracking to prevent rate limit issues.
         
         Args:
             messages: A list of messages in the conversation.
@@ -94,21 +199,50 @@ class AzureOpenAIService:
             
         Returns:
             Dict[str, Any]: The completion response.
+            
+        Raises:
+            ValueError: If token limit would be exceeded
         """
         model = model or self.default_model
         
-        logger.debug(f"Sending chat completion request to model: {model}")
-        return self.client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            top_p=top_p,
-            frequency_penalty=frequency_penalty,
-            presence_penalty=presence_penalty,
-            stop=stop,
-            **kwargs
-        )
+        # Estimate token usage with tiktoken
+        estimated_tokens = self._estimate_token_count(messages, model, max_tokens)
+        
+        # Attempt to lock tokens
+        allowed, request_id, error_message = await self.token_client.lock_tokens(estimated_tokens)
+        
+        if not allowed:
+            logger.warning(f"Token request denied: {error_message}")
+            raise ValueError(f"Rate limit would be exceeded: {error_message}")
+            
+        try:
+            logger.debug(f"Sending chat completion request to model: {model}")
+            response = self.client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
+                stop=stop,
+                **kwargs
+            )
+            
+            # Report actual token usage
+            if hasattr(response, 'usage'):
+                await self.token_client.report_usage(
+                    request_id=request_id,
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens
+                )
+            
+            return response
+        except Exception as e:
+            # Release tokens if API call fails
+            await self.token_client.release_tokens(request_id)
+            logger.error(f"Error in chat completion: {str(e)}")
+            raise
     
     def format_prompt(
         self,
@@ -148,7 +282,7 @@ class AzureOpenAIService:
             
         return messages
     
-    def send_prompt(
+    async def send_prompt(
         self,
         system_prompt: str,
         user_prompt: str,
@@ -161,6 +295,7 @@ class AzureOpenAIService:
     ) -> str:
         """
         Send a prompt with the provided system prompt, user prompt, and variables.
+        This method now includes token tracking to prevent rate limit issues.
         
         Args:
             system_prompt: The system prompt that sets context for the AI.
@@ -185,7 +320,7 @@ class AzureOpenAIService:
         
         # Send the chat completion request
         try:
-            response = self.chat_completion(
+            response = await self.chat_completion(
                 messages=messages,
                 model=model,
                 temperature=temperature,

@@ -11,7 +11,7 @@ from apps.app_feedbackform.services.prompts.prompts import get_system_prompt, ge
 logger = get_logger("feedback_processor")
 
 # Initialize the Azure OpenAI service
-ai_service = AzureOpenAIService()
+ai_service = AzureOpenAIService(app_id="app_feedbackform")
 
 # System prompt for feedback processing
 SYSTEM_PROMPT = get_system_prompt()
@@ -58,7 +58,7 @@ async def process_feedback(text: str, max_retries: int = 3) -> Tuple[bool, Dict[
             logger.info(f"Processing feedback (attempt {attempt + 1}/{max_retries})")
             
             # Send the prompt to the AI service
-            response = ai_service.send_prompt(
+            response = await ai_service.send_prompt(
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=USER_PROMPT,
                 variables={"text": text, "hashtag_options": hashtag_options},
