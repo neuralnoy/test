@@ -1,43 +1,69 @@
-# Async Service Bus Handler for FastAPI Applications
+# Async Service Bus Handler for AI-powered Microservices
 
-A robust, async service bus handler implementation for FastAPI applications that process data from dedicated input queues and send processed results to output queues.
+A robust, asynchronous framework for building AI-powered microservices that process data from dedicated input queues and send processed results to output queues. This framework includes comprehensive token rate limit management for Azure OpenAI integrations.
+
+## System Architecture
+
+The system consists of the following main components:
+
+1. **Feedback Form Processing Service** - Processes customer feedback using AI
+2. **Token Counter Service** - Manages token rate limits for Azure OpenAI API calls
+3. **Common Library** - Shared components used across all services
+
+### High-Level Flow
+
+```
+Customer Feedback -> Service Bus Queue -> Feedback Processor -> AI Analysis -> Processed Results
+                                           ↑                       ↑
+                                           |                       |
+                                           └─── Token Counter Service ───┘
+```
 
 ## Features
 
-- Asynchronous message handling
-- Robust error handling with try-except blocks
-- Automatic message locking during processing
-- Message lock renewal for long-running processes
-- Graceful startup and shutdown
-- Health check endpoints
-- Retries with exponential backoff
-- Comprehensive logging
-- Azure Default Credentials authentication for secure and flexible authentication
+- **Asynchronous Processing**: Non-blocking message handling with asyncio
+- **Intelligent OpenAI Rate Limiting**: Prevents exceeding API rate limits with a dedicated Token Counter service
+- **Robust Error Handling**: Comprehensive error handling with retries and exponential backoff
+- **Message Queue Integration**: Seamless integration with Azure Service Bus
+- **AI-Powered Processing**: Leverages Azure OpenAI for intelligent data processing
+- **Horizontal Scaling**: Supports multiple worker processes for high throughput
+- **Health Monitoring**: Endpoints for health checks and status reporting
+- **Secure Authentication**: Azure Identity integration for secure access to Azure services
 
 ## Project Structure
 
 ```
 ├── apps/
-│   ├── app_feedbackform/
-│   │   ├── models/
-│   │   │   └── schemas.py
-│   │   ├── services/
-│   │   │   └── data_processor.py
-│   │   └── main.py
-│   └── app_counter/
-│       ├── models/
-│       │   └── schemas.py
-│       ├── services/
-│       │   └── data_processor.py
-│       └── main.py
-├── common/
-│   ├── logger.py
-│   └── service_bus.py
-├── requirements.txt
-└── README.md
+│   ├── app_feedbackform/        # Feedback processing service
+│   │   ├── models/              # Data models
+│   │   ├── services/            # Service implementations
+│   │   │   └── prompts/         # OpenAI prompts and processors
+│   │   ├── main.py              # FastAPI application
+│   │   └── README.md            # Service documentation
+│   └── app_counter/             # Token counter service
+│       ├── models/              # Data models
+│       ├── services/            # Service implementations
+│       ├── main.py              # FastAPI application
+│       └── README.md            # Service documentation
+├── common/                      # Shared utilities and services
+│   ├── azure_openai_service.py  # Azure OpenAI client
+│   ├── service_bus.py           # Service Bus handler
+│   ├── logger.py                # Logging utilities
+│   ├── retry_helpers.py         # Retry logic for rate limits
+│   └── README.md                # Common library documentation
+├── requirements.txt             # Python dependencies
+└── README.md                    # This file
 ```
 
-## Setup
+## Getting Started
+
+### Prerequisites
+
+- Python 3.8+
+- Azure Service Bus namespace
+- Azure OpenAI endpoint
+
+### Setup
 
 1. Install dependencies:
 
@@ -55,73 +81,79 @@ export SERVICE_BUS_NAMESPACE="your-servicebus-namespace.servicebus.windows.net"
 export FEEDBACK_FORM_IN_QUEUE="feedback-form-in"
 export FEEDBACK_FORM_OUT_QUEUE="feedback-form-out"
 
-# Queue names for the counter app
-export COUNTER_IN_QUEUE="counter-in"
-export COUNTER_OUT_QUEUE="counter-out"
+# Azure OpenAI configuration
+export AZURE_OPENAI_API_VERSION="2023-05-15"
+export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
+export AZURE_OPENAI_DEPLOYMENT_NAME="gpt-4"
+
+# Token limit (optional, default is 100,000)
+export OPENAI_TOKEN_LIMIT_PER_MINUTE="100000"
 ```
 
-## Authentication
+## Running the Services
 
-The service bus handler uses Azure Identity library's DefaultAzureCredential, which supports:
-- Environment variables (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET)
-- Managed Identity
-- Azure CLI credentials
-- Visual Studio Code credentials
-- Azure PowerShell credentials
-- Interactive browser authentication
-
-Ensure your identity has appropriate permissions to the Service Bus namespace and queues.
-
-## Running the Applications
-
-To run the Feedback Form app:
-
-```bash
-uvicorn apps.app_feedbackform.main:app --host 0.0.0.0 --port 8000 --workers 4
-```
-
-To run the Counter app:
+### Token Counter Service
 
 ```bash
 uvicorn apps.app_counter.main:app --host 0.0.0.0 --port 8001 --workers 4
 ```
 
-## Creating a New App
-
-1. Create the app directory structure:
+### Feedback Form Service
 
 ```bash
-mkdir -p apps/app_name/models apps/app_name/services
+uvicorn apps.app_feedbackform.main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
-2. Create schema models in `apps/app_name/models/schemas.py`.
+## Authentication
 
-3. Create a data processor in `apps/app_name/services/data_processor.py` that implements an async `process_data` function.
+The services use Azure Identity's DefaultAzureCredential for authentication, which supports:
+- Environment variables
+- Managed Identity
+- Azure CLI credentials
+- Visual Studio Code credentials
+- Interactive browser authentication
 
-4. Create the FastAPI app in `apps/app_name/main.py` using the AsyncServiceBusHandler.
+## Detailed Documentation
 
-5. Set the environment variables for your app's queues.
+Each component has its own detailed README file:
 
-## How It Works
+- [Feedback Form Processing Service](./apps/app_feedbackform/README.md)
+- [Token Counter Service](./apps/app_counter/README.md)
+- [Common Library](./common/README.md)
 
-1. When the FastAPI app starts up, the service bus handler begins listening to the input queue.
-2. When a message arrives, it's locked, and the lock is renewed periodically during processing.
-3. The message is processed by the app-specific data processor function.
-4. If processing is successful, the result is sent to the output queue, and the input message is completed.
-5. If an error occurs, the message is abandoned for retry.
-6. The handler includes comprehensive error handling and logging.
+## Key Technical Implementation Details
 
-## Best Practices
+### Token Rate Limiting
 
-- Always include thorough error handling in your data processors.
-- Make data processors as fast as possible to minimize lock time.
-- Use environment variables for configuration.
-- Set up proper logging.
-- Use health check endpoints for monitoring.
-- Scale by adding more workers, not by running multiple instances.
-- For production environments, prefer using Managed Identity with Default Azure Credentials.
-- When running locally, authenticate via Azure CLI (`az login`) or environment variables.
+The system implements a sophisticated token rate limiting system to prevent exceeding Azure OpenAI API limits:
 
-## Monitoring
+1. Applications estimate token usage before making API calls
+2. The Token Counter service keeps track of global token usage
+3. If a rate limit would be exceeded, the request is denied
+4. The calling application intelligently waits until the rate limit window resets
+5. This enables high concurrency without exceeding API limits
 
-Each app exposes a `/health` endpoint that returns the status of the service bus handler. 
+### Asynchronous Service Bus Processing
+
+Messages are processed asynchronously with robust error handling:
+
+1. The Service Bus handler listens to an input queue
+2. Messages are processed concurrently with asyncio
+3. Results are sent to an output queue
+4. Comprehensive error handling ensures no messages are lost
+
+### Retry Logic with Intelligent Backoff
+
+The system includes smart retry logic:
+
+1. Transient errors are retried with exponential backoff
+2. Rate limit errors are retried after the rate limit window resets
+3. Permanent errors are reported with detailed error messages
+
+## Performance and Scaling
+
+For optimal performance and throughput:
+
+- Run with multiple worker processes (4 workers recommended for most deployments)
+- Scale horizontally by adding more instances for higher throughput
+- Token Counter service should be scaled to handle the combined load of all services 
