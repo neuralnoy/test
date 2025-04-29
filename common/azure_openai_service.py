@@ -12,6 +12,7 @@ from azure.identity import DefaultAzureCredential
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 from common.logger import get_logger
+from common.retry_helpers import with_token_limit_retry
 
 # Import TokenClient from app_counter
 from apps.app_counter.services.token_client import TokenClient
@@ -295,7 +296,7 @@ class AzureOpenAIService:
     ) -> str:
         """
         Send a prompt with the provided system prompt, user prompt, and variables.
-        This method now includes token tracking to prevent rate limit issues.
+        Includes retry logic for token rate limit errors.
         
         Args:
             system_prompt: The system prompt that sets context for the AI.
@@ -310,16 +311,17 @@ class AzureOpenAIService:
         Returns:
             str: The generated text response.
         """
-        # Format the prompt with system message, examples, and user message with variable substitution
-        messages = self.format_prompt(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            variables=variables,
-            examples=examples
-        )
-        
-        # Send the chat completion request
-        try:
+        # Create a helper function that doesn't use self as first arg to work with our retry helper
+        async def _do_send_prompt():
+            # Format the prompt with system message, examples, and user message with variable substitution
+            messages = self.format_prompt(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                variables=variables,
+                examples=examples
+            )
+            
+            # Send the chat completion request
             response = await self.chat_completion(
                 messages=messages,
                 model=model,
@@ -330,6 +332,10 @@ class AzureOpenAIService:
             
             # Extract and return the response text
             return response.choices[0].message.content
+            
+        # Use our retry helper that will automatically handle waiting for rate limit windows
+        try:
+            return await with_token_limit_retry(_do_send_prompt, self.token_client, max_retries=3)
         except Exception as e:
             logger.error(f"Error sending prompt: {str(e)}")
             raise 

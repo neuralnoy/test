@@ -58,6 +58,7 @@ async def process_feedback(text: str, max_retries: int = 3) -> Tuple[bool, Dict[
             logger.info(f"Processing feedback (attempt {attempt + 1}/{max_retries})")
             
             # Send the prompt to the AI service
+            # The send_prompt method now handles token rate limit retries internally
             response = await ai_service.send_prompt(
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=USER_PROMPT,
