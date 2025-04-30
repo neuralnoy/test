@@ -1,0 +1,6 @@
+2025-04-30 09:24:27 | INFO | test_logger1 | [MainProcess-65812] | [MainThread-8608271488] | test_logger.py:8 | This is an info message from logger1
+2025-04-30 09:24:27 | WARNING | test_logger1 | [MainProcess-65812] | [MainThread-8608271488] | test_logger.py:9 | This is a warning message from logger1
+2025-04-30 09:24:27 | ERROR | test_logger1 | [MainProcess-65812] | [MainThread-8608271488] | test_logger.py:10 | This is an error message from logger1
+2025-04-30 09:24:27 | INFO | test_logger2 | [MainProcess-65812] | [MainThread-8608271488] | test_logger.py:12 | This is an info message from logger2
+2025-04-30 09:24:27 | WARNING | test_logger2 | [MainProcess-65812] | [MainThread-8608271488] | test_logger.py:13 | This is a warning message from logger2
+2025-04-30 09:24:27 | ERROR | test_logger2 | [MainProcess-65812] | [MainThread-8608271488] | test_logger.py:14 | This is an error message from logger2
