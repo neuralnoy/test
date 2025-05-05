@@ -1,6 +1,6 @@
 import os
 import asyncio
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
 from common.logger import get_logger
 from apps.app_counter.services.token_counter import TokenCounter
@@ -33,6 +33,10 @@ async def lifespan(app: FastAPI):
     # Startup logic
     logger.info(f"Starting Token Counter app with limit of {TOKEN_LIMIT_PER_MINUTE} tokens per minute and {RATE_LIMIT_PER_MINUTE} requests per minute")
     
+    # Store counters in app state for access from endpoints
+    app.state.token_counter = token_counter
+    app.state.rate_counter = rate_counter
+    
     yield  # This is where the app runs
     
     # Shutdown logic
@@ -40,8 +44,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="OpenAI Token Counter", lifespan=lifespan)
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests"""
+    method = request.method
+    path = request.url.path
+    logger.info(f"API REQUEST: {method} {path}")
+    response = await call_next(request)
+    logger.info(f"API RESPONSE: {method} {path} - Status: {response.status_code}")
+    return response
+
 @app.get("/")
 def read_root():
+    logger.info(f"CONFIG: token_limit={TOKEN_LIMIT_PER_MINUTE}, rate_limit={RATE_LIMIT_PER_MINUTE}")
     return {
         "app": "OpenAI Token Counter",
         "status": "running",
@@ -60,12 +75,13 @@ async def lock_tokens(request: TokenRequest):
     Lock tokens for usage and check rate limits.
     Returns whether the request is allowed and a request ID if allowed.
     """
-    logger.info(f"Received token lock request from {request.app_id} for {request.token_count} tokens")
+    logger.info(f"API LOCK: app={request.app_id}, tokens={request.token_count}")
     
     # First check the rate limit
     rate_result = await rate_counter.lock_request(request.app_id)
     
     if not rate_result.get("allowed", False):
+        logger.warning(f"API LOCK DENIED (RATE): app={request.app_id}, tokens={request.token_count}, reason={rate_result.get('message')}")
         return TokenResponse(
             allowed=False,
             message=rate_result.get("message", "Rate limit exceeded")
@@ -77,6 +93,7 @@ async def lock_tokens(request: TokenRequest):
     if not token_result.get("allowed", False):
         # Release the rate lock since we're not proceeding
         await rate_counter.release_request(request.app_id, rate_result["request_id"])
+        logger.warning(f"API LOCK DENIED (TOKEN): app={request.app_id}, tokens={request.token_count}, reason={token_result.get('message')}")
         return TokenResponse(
             allowed=False,
             message=token_result.get("message", "Token limit exceeded")
@@ -87,6 +104,8 @@ async def lock_tokens(request: TokenRequest):
     combined_request_id = f"{token_result['request_id']}:{rate_result['request_id']}"
     
     # Both limits passed, return success with combined info
+    logger.info(f"API LOCK APPROVED: app={request.app_id}, tokens={request.token_count}, combined_id={combined_request_id}")
+    
     return TokenResponse(
         allowed=True,
         request_id=combined_request_id,
@@ -98,7 +117,7 @@ async def report_usage(report: TokenReport):
     """
     Report actual token usage after an API call.
     """
-    logger.info(f"Received usage report from {report.app_id}: prompt={report.prompt_tokens}, completion={report.completion_tokens}")
+    logger.info(f"API REPORT: app={report.app_id}, request_id={report.request_id}, prompt={report.prompt_tokens}, completion={report.completion_tokens}, rate_id={report.rate_request_id}")
     
     success = await token_counter.report_usage(
         report.app_id,
@@ -108,17 +127,21 @@ async def report_usage(report: TokenReport):
     )
     
     if not success:
-        raise HTTPException(status_code=400, detail="Failed to report token usage. Invalid request ID or app ID.")
+        error_msg = f"Failed to report token usage. Invalid request ID or app ID."
+        logger.error(f"API REPORT ERROR: app={report.app_id}, request_id={report.request_id}, reason={error_msg}")
+        raise HTTPException(status_code=400, detail=error_msg)
     
     # If rate request ID is provided, confirm the request
+    rate_success = True
     if report.rate_request_id:
         rate_success = await rate_counter.confirm_request(
             report.app_id,
             report.rate_request_id
         )
         if not rate_success:
-            logger.warning(f"Failed to confirm rate request for {report.app_id}")
+            logger.warning(f"API REPORT PARTIAL: app={report.app_id}, token_success=True, rate_success=False, rate_id={report.rate_request_id}")
     
+    logger.info(f"API REPORT SUCCESS: app={report.app_id}, token_success={success}, rate_success={rate_success}")
     return {"success": True}
 
 @app.post("/release", status_code=200)
@@ -126,22 +149,26 @@ async def release_tokens(request: ReleaseRequest):
     """
     Release locked tokens that won't be used.
     """
-    logger.info(f"Received token release request from {request.app_id} for request ID {request.request_id}")
+    logger.info(f"API RELEASE: app={request.app_id}, request_id={request.request_id}, rate_id={request.rate_request_id}")
     
     success = await token_counter.release_tokens(request.app_id, request.request_id)
     
     if not success:
-        raise HTTPException(status_code=400, detail="Failed to release tokens. Invalid request ID or app ID.")
+        error_msg = f"Failed to release tokens. Invalid request ID or app ID."
+        logger.error(f"API RELEASE ERROR: app={request.app_id}, request_id={request.request_id}, reason={error_msg}")
+        raise HTTPException(status_code=400, detail=error_msg)
     
     # If rate request ID is provided, release the request slot
+    rate_success = True
     if request.rate_request_id:
         rate_success = await rate_counter.release_request(
             request.app_id,
             request.rate_request_id
         )
         if not rate_success:
-            logger.warning(f"Failed to release rate request for {request.app_id}")
+            logger.warning(f"API RELEASE PARTIAL: app={request.app_id}, token_success=True, rate_success=False, rate_id={request.rate_request_id}")
     
+    logger.info(f"API RELEASE SUCCESS: app={request.app_id}, token_success={success}, rate_success={rate_success}")
     return {"success": True}
 
 @app.get("/status", response_model=StatusResponse)
@@ -149,8 +176,12 @@ async def get_status():
     """
     Get the current status of the token counter and rate counter.
     """
+    logger.info("API STATUS: Fetching current status")
+    
     token_status = await token_counter.get_status()
     rate_status = await rate_counter.get_status()
+    
+    logger.info(f"API STATUS RESULT: tokens={token_status['used_tokens']+token_status['locked_tokens']}/{TOKEN_LIMIT_PER_MINUTE}, requests={rate_status['used_requests']+rate_status['locked_requests']}/{RATE_LIMIT_PER_MINUTE}")
     
     return StatusResponse(
         available_tokens=token_status["available_tokens"],

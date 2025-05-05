@@ -24,14 +24,16 @@ class TokenCounter:
         self.last_reset = time.time()
         self.lock = asyncio.Lock()
         self.requests: Dict[str, Dict[str, Any]] = {}
+        logger.info(f"Initialized TokenCounter with {tokens_per_minute} tokens per minute limit")
     
     async def _reset_if_needed(self):
         """Reset the counter if a minute has passed."""
         current_time = time.time()
         if current_time - self.last_reset >= 60:
-            logger.info("Resetting token counter")
+            logger.info(f"Resetting token counter. Before reset: used={self.used_tokens}, locked={self.locked_tokens}, total={(self.used_tokens + self.locked_tokens)}/{self.tokens_per_minute}")
             self.used_tokens = 0
             self.last_reset = current_time
+            logger.info(f"After reset: used={self.used_tokens}, locked={self.locked_tokens}, total={(self.used_tokens + self.locked_tokens)}/{self.tokens_per_minute}")
     
     async def lock_tokens(self, app_id: str, token_count: int) -> Dict[str, Any]:
         """
@@ -48,6 +50,9 @@ class TokenCounter:
             await self._reset_if_needed()
             
             available = self.tokens_per_minute - (self.used_tokens + self.locked_tokens)
+            total_used = self.used_tokens + self.locked_tokens
+            
+            logger.info(f"TOKEN CHECK: app={app_id}, requested={token_count}, used={self.used_tokens}, locked={self.locked_tokens}, total={total_used}/{self.tokens_per_minute}, available={available}")
             
             if token_count <= available:
                 request_id = str(uuid.uuid4())
@@ -57,16 +62,17 @@ class TokenCounter:
                     "locked_tokens": token_count,
                     "timestamp": time.time()
                 }
-                logger.info(f"Locked {token_count} tokens for {app_id} with request ID {request_id}")
+                new_total = self.used_tokens + self.locked_tokens
+                logger.info(f"TOKEN APPROVED: app={app_id}, request_id={request_id}, tokens={token_count}, new_total={new_total}/{self.tokens_per_minute}, locked={self.locked_tokens}, used={self.used_tokens}")
                 return {
                     "allowed": True,
                     "request_id": request_id
                 }
             else:
-                logger.warning(f"Token request denied for {app_id}: requested {token_count}, available {available}")
+                logger.warning(f"TOKEN DENIED: app={app_id}, requested={token_count}, available={available}, total={total_used}/{self.tokens_per_minute}")
                 return {
                     "allowed": False,
-                    "message": f"Rate limit would be exceeded. Available: {available}, Requested: {token_count}"
+                    "message": f"Token limit would be exceeded. Available: {available}, Requested: {token_count}, Total: {total_used}/{self.tokens_per_minute}"
                 }
     
     async def report_usage(self, app_id: str, request_id: str, prompt_tokens: int, completion_tokens: int) -> bool:
@@ -84,11 +90,11 @@ class TokenCounter:
         """
         async with self.lock:
             if request_id not in self.requests:
-                logger.error(f"Invalid request ID {request_id} from {app_id}")
+                logger.error(f"TOKEN REPORT ERROR: Invalid request ID {request_id} from {app_id}")
                 return False
             
             if self.requests[request_id]["app_id"] != app_id:
-                logger.error(f"App ID mismatch for request {request_id}: expected {self.requests[request_id]['app_id']}, got {app_id}")
+                logger.error(f"TOKEN REPORT ERROR: App ID mismatch for request {request_id}: expected {self.requests[request_id]['app_id']}, got {app_id}")
                 return False
             
             # Get the locked tokens for this request
@@ -98,13 +104,17 @@ class TokenCounter:
             actual_usage = prompt_tokens + completion_tokens
             
             # Update counters
+            before_locked = self.locked_tokens
+            before_used = self.used_tokens
+            
             self.locked_tokens -= locked_tokens
             self.used_tokens += actual_usage
             
             # Clean up the request
             del self.requests[request_id]
             
-            logger.info(f"Reported usage for {app_id}: prompt={prompt_tokens}, completion={completion_tokens}")
+            total = self.used_tokens + self.locked_tokens
+            logger.info(f"TOKEN REPORTED: app={app_id}, request_id={request_id}, prompt={prompt_tokens}, completion={completion_tokens}, actual={actual_usage}, expected={locked_tokens}, locked changed {before_locked}->{self.locked_tokens}, used changed {before_used}->{self.used_tokens}, total={total}/{self.tokens_per_minute}")
             return True
     
     async def release_tokens(self, app_id: str, request_id: str) -> bool:
@@ -120,20 +130,23 @@ class TokenCounter:
         """
         async with self.lock:
             if request_id not in self.requests:
-                logger.error(f"Invalid request ID {request_id} from {app_id}")
+                logger.error(f"TOKEN RELEASE ERROR: Invalid request ID {request_id} from {app_id}")
                 return False
             
             if self.requests[request_id]["app_id"] != app_id:
-                logger.error(f"App ID mismatch for request {request_id}: expected {self.requests[request_id]['app_id']}, got {app_id}")
+                logger.error(f"TOKEN RELEASE ERROR: App ID mismatch for request {request_id}: expected {self.requests[request_id]['app_id']}, got {app_id}")
                 return False
             
             # Release the locked tokens
-            self.locked_tokens -= self.requests[request_id]["locked_tokens"]
+            before_locked = self.locked_tokens
+            released_tokens = self.requests[request_id]["locked_tokens"]
+            self.locked_tokens -= released_tokens
             
             # Clean up the request
             del self.requests[request_id]
             
-            logger.info(f"Released tokens for {app_id} with request ID {request_id}")
+            total = self.used_tokens + self.locked_tokens
+            logger.info(f"TOKEN RELEASED: app={app_id}, request_id={request_id}, tokens={released_tokens}, locked changed {before_locked}->{self.locked_tokens}, total={total}/{self.tokens_per_minute}")
             return True
     
     async def get_status(self) -> Dict[str, Any]:
@@ -149,6 +162,9 @@ class TokenCounter:
             current_time = time.time()
             seconds_until_reset = max(0, 60 - (current_time - self.last_reset))
             available_tokens = max(0, self.tokens_per_minute - (self.used_tokens + self.locked_tokens))
+            total = self.used_tokens + self.locked_tokens
+            
+            logger.info(f"TOKEN STATUS: used={self.used_tokens}, locked={self.locked_tokens}, total={total}/{self.tokens_per_minute}, available={available_tokens}, reset_in={int(seconds_until_reset)}s")
             
             return {
                 "available_tokens": available_tokens,
