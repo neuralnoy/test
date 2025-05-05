@@ -84,7 +84,7 @@ async def lock_tokens(request: TokenRequest):
         logger.warning(f"API LOCK DENIED (RATE): app={request.app_id}, tokens={request.token_count}, reason={rate_result.get('message')}")
         return TokenResponse(
             allowed=False,
-            message=rate_result.get("message", "Rate limit exceeded")
+            message=f"API Rate limit would be exceeded: {rate_result.get('message', 'Rate limit exceeded')}"
         )
     
     # Then check the token limit
@@ -96,7 +96,7 @@ async def lock_tokens(request: TokenRequest):
         logger.warning(f"API LOCK DENIED (TOKEN): app={request.app_id}, tokens={request.token_count}, reason={token_result.get('message')}")
         return TokenResponse(
             allowed=False,
-            message=token_result.get("message", "Token limit exceeded")
+            message=f"Token limit would be exceeded: {token_result.get('message', 'Token limit exceeded')}"
         )
     
     # Combine token and rate request IDs for backward compatibility with existing clients
@@ -181,14 +181,29 @@ async def get_status():
     token_status = await token_counter.get_status()
     rate_status = await rate_counter.get_status()
     
-    logger.info(f"API STATUS RESULT: tokens={token_status['used_tokens']+token_status['locked_tokens']}/{TOKEN_LIMIT_PER_MINUTE}, requests={rate_status['used_requests']+rate_status['locked_requests']}/{RATE_LIMIT_PER_MINUTE}")
+    # Calculate which limit will reset first
+    token_reset = token_status.get("reset_time_seconds", 0)
+    rate_reset = rate_status.get("reset_time_seconds", 0)
+    
+    # Use the minimum reset time as the effective reset time
+    effective_reset = min(token_reset, rate_reset)
+    
+    token_usage = token_status.get("used_tokens", 0) + token_status.get("locked_tokens", 0)
+    rate_usage = rate_status.get("used_requests", 0) + rate_status.get("locked_requests", 0)
+    
+    token_pct = (token_usage / TOKEN_LIMIT_PER_MINUTE) * 100 if TOKEN_LIMIT_PER_MINUTE > 0 else 0
+    rate_pct = (rate_usage / RATE_LIMIT_PER_MINUTE) * 100 if RATE_LIMIT_PER_MINUTE > 0 else 0
+    
+    logger.info(f"API STATUS RESULT: tokens={token_usage}/{TOKEN_LIMIT_PER_MINUTE} ({token_pct:.1f}%), "
+                f"requests={rate_usage}/{RATE_LIMIT_PER_MINUTE} ({rate_pct:.1f}%), "
+                f"token_reset={token_reset}s, rate_reset={rate_reset}s, effective_reset={effective_reset}s")
     
     return StatusResponse(
-        available_tokens=token_status["available_tokens"],
-        used_tokens=token_status["used_tokens"],
-        locked_tokens=token_status["locked_tokens"],
-        available_requests=rate_status["available_requests"],
-        used_requests=rate_status["used_requests"],
-        locked_requests=rate_status["locked_requests"],
-        reset_time_seconds=token_status["reset_time_seconds"]
+        available_tokens=token_status.get("available_tokens", 0),
+        used_tokens=token_status.get("used_tokens", 0),
+        locked_tokens=token_status.get("locked_tokens", 0),
+        available_requests=rate_status.get("available_requests", 0),
+        used_requests=rate_status.get("used_requests", 0),
+        locked_requests=rate_status.get("locked_requests", 0),
+        reset_time_seconds=effective_reset  # Use the minimum of the two reset times
     ) 

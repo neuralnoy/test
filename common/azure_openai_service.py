@@ -213,8 +213,9 @@ class AzureOpenAIService:
         allowed, request_id, error_message = await self.token_client.lock_tokens(estimated_tokens)
         
         if not allowed:
-            logger.warning(f"Token request denied: {error_message}")
-            raise ValueError(f"Rate limit would be exceeded: {error_message}")
+            logger.warning(f"Request denied: {error_message}")
+            # Pass through the exact error message to preserve the rate vs token limit distinction
+            raise ValueError(error_message)
             
         try:
             logger.debug(f"Sending chat completion request to model: {model}")

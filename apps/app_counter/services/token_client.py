@@ -2,6 +2,7 @@ import aiohttp
 import asyncio
 from typing import Dict, Any, Optional, Tuple
 from common.logger import get_logger
+import time
 
 logger = get_logger("token_client")
 
@@ -125,8 +126,22 @@ class TokenClient:
                 url = f"{self.base_url}/status"
                 async with session.get(url) as response:
                     if response.status == 200:
-                        return await response.json()
-                    return None
+                        status_data = await response.json()
+                        
+                        # Add client information to help with debugging
+                        status_data["client_app_id"] = self.app_id
+                        status_data["client_timestamp"] = time.time()
+                        
+                        # Calculate the effective time until reset - the minimum of token and rate reset times
+                        token_reset = status_data.get("reset_time_seconds", 0)
+                        
+                        # Log the status information for debugging
+                        logger.debug(f"STATUS: Retrieved for {self.app_id}: token_avail={status_data.get('available_tokens')}, req_avail={status_data.get('available_requests')}, reset_in={token_reset}s")
+                        
+                        return status_data
+                    else:
+                        logger.warning(f"Failed to get status: HTTP {response.status}")
+                        return None
             except Exception as e:
                 logger.error(f"Error getting token counter status: {str(e)}")
                 return None 
