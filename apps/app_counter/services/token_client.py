@@ -70,6 +70,13 @@ class TokenClient:
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens
                 }
+                
+                # Extract rate_request_id from request_id if it's in the format "token_id:rate_id"
+                if ":" in request_id:
+                    token_id, rate_id = request_id.split(":", 1)
+                    data["request_id"] = token_id
+                    data["rate_request_id"] = rate_id
+                
                 async with session.post(url, json=data) as response:
                     return response.status == 200
             except Exception as e:
@@ -93,6 +100,13 @@ class TokenClient:
                     "app_id": self.app_id,
                     "request_id": request_id
                 }
+                
+                # Extract rate_request_id from request_id if it's in the format "token_id:rate_id"
+                if ":" in request_id:
+                    token_id, rate_id = request_id.split(":", 1)
+                    data["request_id"] = token_id
+                    data["rate_request_id"] = rate_id
+                
                 async with session.post(url, json=data) as response:
                     return response.status == 200
             except Exception as e:
@@ -104,7 +118,7 @@ class TokenClient:
         Get the current status of the token counter.
         
         Returns:
-            Dict with available tokens, used tokens, locked tokens, and seconds until reset
+            Dict with available tokens, used tokens, locked tokens, available requests, and seconds until reset
         """
         async with aiohttp.ClientSession() as session:
             try:

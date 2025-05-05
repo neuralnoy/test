@@ -27,6 +27,7 @@ class TestCounterAPI:
         assert data["app"] == "OpenAI Token Counter"
         assert data["status"] == "running"
         assert "token_limit_per_minute" in data
+        assert "rate_limit_per_minute" in data
 
     @pytest.mark.asyncio
     async def test_health_check(self, client):
@@ -57,6 +58,8 @@ class TestCounterAPI:
         assert data["allowed"] is True
         assert "request_id" in data
         assert data["request_id"] is not None
+        # Verify the request_id contains the combined token and rate IDs
+        assert ":" in data["request_id"]
 
     @pytest.mark.asyncio
     async def test_lock_tokens_over_limit(self, client):
@@ -297,4 +300,24 @@ class TestCounterAPI:
         
         # Verify counters were reset
         assert status_after.json()["used_tokens"] == 0
-        assert status_after.json()["locked_tokens"] == 0 
+        assert status_after.json()["locked_tokens"] == 0
+
+    @pytest.mark.asyncio
+    async def test_status_contains_rate_info(self, client):
+        """Test that status endpoint includes rate limit information"""
+        response = await client.get("/status")
+        
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Check token counter fields
+        assert "available_tokens" in data
+        assert "used_tokens" in data
+        assert "locked_tokens" in data
+        
+        # Check rate counter fields
+        assert "available_requests" in data
+        assert "used_requests" in data
+        assert "locked_requests" in data
+        
+        assert "reset_time_seconds" in data 

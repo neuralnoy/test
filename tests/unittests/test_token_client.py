@@ -340,4 +340,78 @@ class TestTokenClient:
         token_client.report_usage.assert_called_once_with(
             "test-request-id", 50, 30
         )
-        assert result == {"result": "success"} 
+        assert result == {"result": "success"}
+
+    @pytest.mark.asyncio
+    async def test_report_usage_with_combined_id(self, token_client):
+        """Test reporting token usage with a combined token:rate ID"""
+        # Mock the post method to return a successful response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"success": True}
+        token_client._http_client.post = AsyncMock(return_value=mock_response)
+        
+        # Call the method with a combined ID
+        combined_id = "token-id:rate-id"
+        success = await token_client.report_usage(combined_id, 2000, 1000)
+        
+        # Assertions
+        token_client._http_client.post.assert_called_once()
+        # Verify the request was sent with the correct parameters
+        call_args = token_client._http_client.post.call_args[1]
+        assert "json" in call_args
+        assert call_args["json"]["request_id"] == "token-id"
+        assert call_args["json"]["rate_request_id"] == "rate-id"
+        assert success is True
+
+    @pytest.mark.asyncio
+    async def test_release_tokens_with_combined_id(self, token_client):
+        """Test releasing tokens with a combined token:rate ID"""
+        # Mock the post method to return a successful response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"success": True}
+        token_client._http_client.post = AsyncMock(return_value=mock_response)
+        
+        # Call the method with a combined ID
+        combined_id = "token-id:rate-id"
+        success = await token_client.release_tokens(combined_id)
+        
+        # Assertions
+        token_client._http_client.post.assert_called_once()
+        # Verify the request was sent with the correct parameters
+        call_args = token_client._http_client.post.call_args[1]
+        assert "json" in call_args
+        assert call_args["json"]["request_id"] == "token-id"
+        assert call_args["json"]["rate_request_id"] == "rate-id"
+        assert success is True
+
+    @pytest.mark.asyncio
+    async def test_get_status_with_rate_info(self, token_client):
+        """Test getting status including rate limit information"""
+        # Mock the get method to return a successful response with rate info
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "available_tokens": 90000,
+            "used_tokens": 5000,
+            "locked_tokens": 5000,
+            "available_requests": 90,
+            "used_requests": 5,
+            "locked_requests": 5,
+            "reset_time_seconds": 30
+        }
+        token_client._http_client.get = AsyncMock(return_value=mock_response)
+        
+        # Call the method
+        status = await token_client.get_status()
+        
+        # Assertions
+        token_client._http_client.get.assert_called_once()
+        assert status["available_tokens"] == 90000
+        assert status["used_tokens"] == 5000
+        assert status["locked_tokens"] == 5000
+        assert status["available_requests"] == 90
+        assert status["used_requests"] == 5
+        assert status["locked_requests"] == 5
+        assert status["reset_time_seconds"] == 30 
