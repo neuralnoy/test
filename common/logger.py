@@ -6,8 +6,9 @@ import platform
 import sys
 import shutil
 from typing import Optional
+from logging.handlers import TimedRotatingFileHandler
 
-# Get terminal width, default to 80 if not available
+# Get terminal width, default to 120 if not available
 try:
     TERMINAL_WIDTH = shutil.get_terminal_size().columns
 except (AttributeError, ValueError):
@@ -172,7 +173,7 @@ def get_process_info() -> str:
     process = multiprocessing.current_process()
     return f"{process.name}-{process.pid}"
 
-def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
+def get_logger(name: str, log_level: Optional[int] = None, rotation_hours: Optional[int] = None) -> logging.Logger:
     """
     Get a configured logger with colored output, fixed-width fields, and additional information.
     Also saves logs to a file in the logs directory at the root of the project.
@@ -180,6 +181,7 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
     Args:
         name: Name of the logger
         log_level: Optional log level to set (defaults to INFO)
+        rotation_hours: Optional number of hours after which to rotate the log file (defaults to None, meaning no rotation)
     
     Returns:
         Configured logger instance
@@ -208,8 +210,20 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
         )
         date_format = '%Y-%m-%d %H:%M:%S'
         
-        # Create file handler
-        file_handler = logging.FileHandler(os.path.join(logs_dir, "app.log"))
+        # Create file handler with time-based rotation if specified
+        if rotation_hours is not None:
+            file_handler = TimedRotatingFileHandler(
+                filename=os.path.join(logs_dir, "app.log"),
+                when='H',  # Rotate by hour
+                interval=rotation_hours,
+                backupCount=0,  # Keep all backup files
+                encoding='utf-8'
+            )
+            # Set the suffix format to include the time range
+            file_handler.suffix = "%Y%m%d_%H%M"
+        else:
+            file_handler = logging.FileHandler(os.path.join(logs_dir, "app.log"))
+            
         file_formatter = logging.Formatter(file_log_format, date_format)
         file_handler.setFormatter(file_formatter)
         root_logger.addHandler(file_handler)
