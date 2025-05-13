@@ -17,6 +17,18 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
     root_logger = logging.getLogger()
     log_level = log_level if log_level is not None else logging.INFO
     
+    # Common log format - defined outside of conditional blocks
+    log_format = (
+        "%(asctime)s | "
+        "%(levelname)s | "
+        "%(name)s | "
+        "[%(processName)s-%(process)d] | "
+        "[%(threadName)s-%(thread)d] | "
+        "%(filename)s:%(lineno)d | "
+        "%(message)s"
+    )
+    date_format = '%Y-%m-%d %H:%M:%S'
+    
     # Only configure root logger if it hasn't been configured yet
     if not root_logger.handlers:
         root_logger.setLevel(log_level)
@@ -24,18 +36,6 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
         # Create logs directory if it doesn't exist
         logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
         os.makedirs(logs_dir, exist_ok=True)
-        
-        # Common log format
-        log_format = (
-            "%(asctime)s | "
-            "%(levelname)s | "
-            "%(name)s | "
-            "[%(processName)s-%(process)d] | "
-            "[%(threadName)s-%(thread)d] | "
-            "%(filename)s:%(lineno)d | "
-            "%(message)s"
-        )
-        date_format = '%Y-%m-%d %H:%M:%S'
         
         # Create file handler
         file_handler = logging.FileHandler(os.path.join(logs_dir, "app.log"))
