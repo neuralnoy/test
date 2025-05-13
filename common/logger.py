@@ -174,7 +174,7 @@ def get_process_info() -> str:
     process = multiprocessing.current_process()
     return f"{process.name}-{process.pid}"
 
-def get_logger(name: str, log_level: Optional[int] = None, rotation_hours: Optional[int] = None) -> logging.Logger:
+def get_logger(name: str, log_level: Optional[int] = None, rotation_minutes: Optional[int] = None) -> logging.Logger:
     """
     Get a configured logger with colored output, fixed-width fields, and additional information.
     Also saves logs to a file in the logs directory at the root of the project.
@@ -182,7 +182,7 @@ def get_logger(name: str, log_level: Optional[int] = None, rotation_hours: Optio
     Args:
         name: Name of the logger
         log_level: Optional log level to set (defaults to INFO)
-        rotation_hours: Optional number of hours after which to rotate the log file (defaults to None, meaning no rotation)
+        rotation_minutes: Optional number of minutes after which to rotate the log file (defaults to None, meaning no rotation)
     
     Returns:
         Configured logger instance
@@ -212,21 +212,21 @@ def get_logger(name: str, log_level: Optional[int] = None, rotation_hours: Optio
         date_format = '%Y-%m-%d %H:%M:%S'
         
         # Create file handler with time-based rotation if specified
-        if rotation_hours is not None:
+        if rotation_minutes is not None:
             log_file = os.path.join(logs_dir, "app.log")
-            # Use 'H' for hours as originally intended
+            # Use 'M' for minute-based rotation
             file_handler = TimedRotatingFileHandler(
                 filename=log_file,
-                when='H',  # Rotate by hours
-                interval=rotation_hours,  # Use the hours specified by the user
+                when='M',  # Rotate by minutes
+                interval=rotation_minutes,  # Use the minutes specified by the user
                 backupCount=0,  # Keep all backup files
                 encoding='utf-8',
-                atTime=None  # Rotate at the start of the hour
+                atTime=None  # Rotate at the start of the minute interval
             )
             file_handler.suffix = "%Y%m%d_%H%M%S"
             
             # Add debugging info
-            print(f"Log rotation configured: rotating every {rotation_hours} hour(s), current time: {time.ctime()}, next rotation at: {time.ctime(file_handler.rolloverAt)}")
+            print(f"Log rotation configured: rotating every {rotation_minutes} minute(s), current time: {time.ctime()}, next rotation at: {time.ctime(file_handler.rolloverAt)}")
 
             # Custom namer to change the rotated log file's final name format
             def custom_namer(default_name):
