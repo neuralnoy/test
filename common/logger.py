@@ -19,7 +19,7 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
         log_level = logging.INFO
     
     # Define log format to be used for all handlers
-    log_format_str = "%(asctime)s | %(levelname)s | %(name)s | [%(processName)s-%(process)d] | [%(threadName)s-%(thread)d] | %(filename)s:%(lineno)d | %(message)s"
+    log_format_str = "%(asctime)s.%(msecs)03d | %(levelname)s | %(name)s | [%(processName)s-%(process)d] | [%(threadName)s-%(thread)d] | %(filename)s:%(lineno)d | %(message)s"
     date_format_str = '%Y-%m-%d %H:%M:%S'
     formatter = logging.Formatter(log_format_str, date_format_str)
     
