@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from typing import Optional
 
 def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
@@ -13,48 +14,40 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
     Returns:
         Configured logger instance
     """
-    # Create a root logger if it doesn't exist yet
+    # Set default log level if not provided
+    if log_level is None:
+        log_level = logging.INFO
+    
+    # Define log format to be used for all handlers
+    log_format_str = "%(asctime)s | %(levelname)s | %(name)s | [%(processName)s-%(process)d] | [%(threadName)s-%(thread)d] | %(filename)s:%(lineno)d | %(message)s"
+    date_format_str = '%Y-%m-%d %H:%M:%S'
+    formatter = logging.Formatter(log_format_str, date_format_str)
+    
+    # Get or create logger
+    logger = logging.getLogger(name)
+    logger.setLevel(log_level)
+    
+    # Return logger if it already has handlers configured
+    if logger.handlers:
+        return logger
+    
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    # Configure root logger for file logging if not already configured
     root_logger = logging.getLogger()
-    log_level = log_level if log_level is not None else logging.INFO
-    
-    # Common log format - defined outside of conditional blocks
-    log_format = (
-        "%(asctime)s | "
-        "%(levelname)s | "
-        "%(name)s | "
-        "[%(processName)s-%(process)d] | "
-        "[%(threadName)s-%(thread)d] | "
-        "%(filename)s:%(lineno)d | "
-        "%(message)s"
-    )
-    date_format = '%Y-%m-%d %H:%M:%S'
-    
-    # Only configure root logger if it hasn't been configured yet
     if not root_logger.handlers:
-        root_logger.setLevel(log_level)
-        
-        # Create logs directory if it doesn't exist
+        # Create logs directory
         logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
         os.makedirs(logs_dir, exist_ok=True)
         
         # Create file handler
-        file_handler = logging.FileHandler(os.path.join(logs_dir, "app.log"))
-        file_formatter = logging.Formatter(log_format, date_format)
-        file_handler.setFormatter(file_formatter)
+        file_path = os.path.join(logs_dir, "app.log")
+        file_handler = logging.FileHandler(file_path)
+        file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
-    
-    # Get the logger for this module
-    logger = logging.getLogger(name)
-    
-    # Only configure console handler if it hasn't been configured yet
-    if not logger.handlers:
-        # Create console handler
-        console_handler = logging.StreamHandler()
-        formatter = logging.Formatter(log_format, date_format)
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
-        
-        # Set log level
-        logger.setLevel(log_level)
+        root_logger.setLevel(log_level)
     
     return logger
