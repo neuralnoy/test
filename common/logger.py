@@ -7,6 +7,7 @@ import sys
 import shutil
 from typing import Optional
 from logging.handlers import TimedRotatingFileHandler
+import time
 
 # Get terminal width, default to 120 if not available
 try:
@@ -212,19 +213,40 @@ def get_logger(name: str, log_level: Optional[int] = None, rotation_hours: Optio
         
         # Create file handler with time-based rotation if specified
         if rotation_hours is not None:
+            log_file = os.path.join(logs_dir, "app.log")
+            # Use 'H' for hours as originally intended
             file_handler = TimedRotatingFileHandler(
-                filename=os.path.join(logs_dir, "app.log"),
-                when='H',  # Rotate by hour
-                interval=rotation_hours,
+                filename=log_file,
+                when='H',  # Rotate by hours
+                interval=rotation_hours,  # Use the hours specified by the user
                 backupCount=0,  # Keep all backup files
-                encoding='utf-8'
+                encoding='utf-8',
+                atTime=None  # Rotate at the start of the hour
             )
             # Set the suffix format to include the time range
-            file_handler.suffix = "%Y%m%d_%H%M"
+            file_handler.suffix = "%Y%m%d_%H%M%S"
+            
+            # Add debugging info
+            print(f"Log rotation configured: rotating every {rotation_hours} hour(s), current time: {time.ctime()}, next rotation at: {time.ctime(file_handler.rolloverAt)}")
+            
+            # Add a custom formatter that includes rotation information
+            class RotationAwareFormatter(logging.Formatter):
+                def format(self, record):
+                    if hasattr(record, 'rotated'):
+                        record.msg = f"[ROTATION] Log file rotated to {record.msg}"
+                    return super().format(record)
+            
+            file_formatter = RotationAwareFormatter(file_log_format, date_format)
+            
+            # Add a custom rotation callback
+            def rotation_callback(handler, old_log_file, new_log_file):
+                root_logger.info(f"Log file rotated from {old_log_file} to {new_log_file}")
+            
+            file_handler.rotator = rotation_callback
         else:
             file_handler = logging.FileHandler(os.path.join(logs_dir, "app.log"))
+            file_formatter = logging.Formatter(file_log_format, date_format)
             
-        file_formatter = logging.Formatter(file_log_format, date_format)
         file_handler.setFormatter(file_formatter)
         root_logger.addHandler(file_handler)
     
