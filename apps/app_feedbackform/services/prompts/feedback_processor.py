@@ -70,8 +70,10 @@ async def process_feedback(text: str, max_retries: int = 3) -> Tuple[bool, Dict[
             result = json.loads(response)
             
             # Validate required fields
-            required_fields = ["summary", "hashtag", "ai_hashtag"]
+            required_fields = ["summary", "hashtag", "ai_hashtag", "contains_pii_or_cid"]
             if all(field in result for field in required_fields):
+                # Log whether PII or CID was detected
+                logger.info(f"PII or CID detected: {result['contains_pii_or_cid']}")
                 logger.info("Successfully processed feedback")
                 return True, result
             else:
@@ -92,6 +94,7 @@ async def process_feedback(text: str, max_retries: int = 3) -> Tuple[bool, Dict[
         "summary": "Failed to process feedback after multiple attempts",
         "hashtag": "#error",
         "ai_hashtag": "#processing_failed",
+        "contains_pii_or_cid": "Unknown",
         "error": "Processing failed after maximum retry attempts"
     }
     

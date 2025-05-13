@@ -5,6 +5,7 @@ SYSTEM_PROMPT = """You are a specialized AI assistant that processes customer fe
 1. Summarize the feedback concisely, removing all personal identifiable information (PII).
 2. Classify the feedback into a predefined hashtag category.
 3. Generate a secondary AI-suggested hashtag that's relevant but not in the predefined list.
+4. Detect if the original feedback text contains any PII or CID (Customer Identifiers).
 
 PII includes but is not limited to:
 - Names (first names, last names)
@@ -14,11 +15,20 @@ PII includes but is not limited to:
 - Email addresses, phone numbers
 - Any other information that could identify a specific client
 
+CID includes but is not limited to:
+- Customer ID numbers
+- Account numbers
+- Contract numbers
+- Membership IDs
+- Reference numbers
+- Case numbers
+
 Your output must be in valid JSON format with the following structure:
 {
   "summary": "concise summary of the feedback with all PII removed",
   "hashtag": "#predefinedHashtag",
-  "ai_hashtag": "#aiGeneratedHashtag"
+  "ai_hashtag": "#aiGeneratedHashtag",
+  "contains_pii_or_cid": "Yes" or "No"
 }
 
 For the predefined hashtag, you must select exactly one from this list:

@@ -3,7 +3,7 @@ import json
 import asyncio
 from typing import Dict, Any, Optional
 from common.logger import get_logger
-from apps.app_feedbackform.models.schemas import InputFeedbackForm, OutputFeedbackForm
+from apps.app_feedbackform.models.schemas import InputFeedbackForm, OutputFeedbackForm, InternalFeedbackResult
 from apps.app_feedbackform.services.prompts import process_feedback
 
 logger = get_logger("feedback_form_processor")
@@ -31,7 +31,22 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
         success, result = await process_feedback(form_data.text)
         
         if success:
+            # Create internal result with PII/CID detection information for logging
+            internal_result = InternalFeedbackResult(
+                id=form_data.id,
+                taskId=form_data.taskId,
+                ai_hashtag=result["ai_hashtag"],
+                hashtag=result["hashtag"],
+                summary=result["summary"],
+                message="SUCCESS",
+                contains_pii_or_cid=result["contains_pii_or_cid"]
+            )
+            
+            # Log the PII/CID detection information
+            logger.info(f"Feedback form {form_data.id} contains PII or CID: {internal_result.contains_pii_or_cid}")
+            
             # Create output data structure using existing Pydantic model with SUCCESS message
+            # This is what will be sent to the queue (without the contains_pii_or_cid field)
             output_data = OutputFeedbackForm(
                 id=form_data.id,
                 taskId=form_data.taskId,
@@ -45,6 +60,10 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
             return output_data.model_dump()
         else:
             # Processing failed after retries, return error response
+            # For failed processing, we still want to log if we have PII/CID information
+            contains_pii_or_cid = result.get("contains_pii_or_cid", "Unknown")
+            logger.info(f"Failed feedback form {form_data.id} contains PII or CID: {contains_pii_or_cid}")
+            
             output_data = OutputFeedbackForm(
                 id=form_data.id,
                 taskId=form_data.taskId,
