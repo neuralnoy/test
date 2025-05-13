@@ -5,8 +5,14 @@ import multiprocessing
 import platform
 import sys
 import shutil
-from typing import Optional
-from logging.handlers import TimedRotatingFileHandler
+import atexit
+from typing import Optional, Tuple, Any
+from logging.handlers import TimedRotatingFileHandler, QueueHandler, QueueListener
+
+# Global variables for queue-based logging
+_log_queue = None
+_queue_listener = None
+_listener_configured = False
 
 # Get terminal width, default to 120 if not available
 try:
@@ -173,110 +179,164 @@ def get_process_info() -> str:
     process = multiprocessing.current_process()
     return f"{process.name}-{process.pid}"
 
+def setup_logging_listener(log_level: int = logging.INFO, 
+                           rotation_interval_minutes: Optional[int] = None, 
+                           log_backup_count: int = 7) -> Tuple[QueueListener, Any]:
+    """
+    Set up a central logging queue and listener for multiprocessing-safe logging.
+    This should be called ONCE from the main process before any child processes are spawned.
+    
+    Args:
+        log_level: The logging level for the root logger
+        rotation_interval_minutes: If provided, logs will be rotated at this interval
+        log_backup_count: Number of rotated log files to keep
+        
+    Returns:
+        A tuple of (QueueListener, Queue) that are now handling all logging 
+    """
+    global _log_queue, _queue_listener, _listener_configured
+    
+    if _listener_configured:
+        return _queue_listener, _log_queue
+    
+    # Create logs directory if it doesn't exist
+    logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    # Set file log format (plain, no colors)
+    file_log_format = (
+        "%(asctime)s | "
+        "%(levelname)s | "
+        "%(name)s | "
+        "[%(processName)s-%(process)d] | "
+        "[%(threadName)s-%(thread)d] | "
+        "%(filename)s:%(lineno)d | "
+        "%(message)s"
+    )
+    date_format = '%Y-%m-%d %H:%M:%S'
+    
+    # Create file handler for log files
+    file_formatter = logging.Formatter(file_log_format, date_format)
+    
+    # Configure the file handler based on rotation parameters
+    if rotation_interval_minutes and rotation_interval_minutes > 0:
+        file_handler = TimedRotatingFileHandler(
+            filename=os.path.join(logs_dir, "app.log"),
+            when='m',  # 'm' for minutes
+            interval=rotation_interval_minutes,
+            backupCount=log_backup_count,
+            encoding='utf-8',
+            delay=False
+        )
+    else:
+        file_handler = logging.FileHandler(os.path.join(logs_dir, "app.log"), encoding='utf-8')
+    
+    file_handler.setFormatter(file_formatter)
+    
+    # Create console handler
+    console_handler = logging.StreamHandler()
+    
+    # Calculate appropriate field widths for console output
+    name_width, process_width, thread_width, file_width, level_width = calculate_field_widths()
+    
+    # Configure console handler based on TTY environment
+    is_tty = sys.stdout.isatty()
+    if is_tty:
+        # Set colored log format with fixed-width fields for terminal
+        log_format = "%(asctime)s | %(levelname_colored)s | %(name_colored)s | %(process_info_colored)s | %(thread_info_colored)s | %(file_info_colored)s | %(message)s"
+        date_format = '%Y-%m-%d %H:%M:%S'
+        
+        formatter = FixedWidthColoredFormatter(
+            log_format, 
+            date_format,
+            name_width=name_width,
+            process_width=process_width,
+            thread_width=thread_width,
+            file_width=file_width,
+            level_width=level_width
+        )
+    else:
+        # Set plain log format with fixed-width fields for non-terminals
+        log_format = (
+            "%(asctime)s | "
+            f"%(levelname)-{level_width}s | "
+            f"%(name)-{name_width}s | "
+            f"[%(processName)s-%(process)d] | "
+            f"[%(threadName)s-%(thread)d] | "
+            f"%(filename)s:%(lineno)d | "
+            "%(message)s"
+        )
+        formatter = logging.Formatter(log_format, date_format)
+    
+    console_handler.setFormatter(formatter)
+    
+    # Set up the queue
+    _log_queue = multiprocessing.Queue(-1)  # No limit on queue size
+    
+    # Set up and start the listener with handlers
+    _queue_listener = QueueListener(_log_queue, file_handler, console_handler, respect_handler_level=True)
+    _queue_listener.start()
+    
+    # Configure the root logger with a queue handler
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)  # Set root logger level
+    
+    # Register to stop the listener at exit
+    atexit.register(stop_logging_listener)
+    
+    _listener_configured = True
+    return _queue_listener, _log_queue
+
+def stop_logging_listener():
+    """
+    Stop the logging queue listener. This should be called when shutting down the application.
+    It will be automatically called at exit via atexit registration in setup_logging_listener.
+    """
+    global _queue_listener, _listener_configured
+    
+    if _queue_listener is not None:
+        _queue_listener.stop()
+        _queue_listener = None
+        _listener_configured = False
+
 def get_logger(name: str, log_level: Optional[int] = None, rotation_interval_minutes: Optional[int] = None, log_backup_count: int = 7) -> logging.Logger:
     """
     Get a configured logger with colored output, fixed-width fields, and additional information.
-    Also saves logs to a file in the logs directory at the root of the project.
-    If rotation_interval_minutes is provided, logs will be rotated based on this interval.
+    In a multi-process environment, this sets up queue-based logging where only the main process
+    handles actual file I/O.
     
     Args:
         name: Name of the logger
         log_level: Optional log level to set (defaults to INFO)
-        rotation_interval_minutes: Optional interval in minutes for log rotation.
-        log_backup_count: Number of backup log files to keep.
+        rotation_interval_minutes: Optional interval in minutes for log rotation
+        log_backup_count: Number of backup log files to keep
     
     Returns:
         Configured logger instance
     """
-    # Create a root logger if it doesn't exist yet
-    root_logger = logging.getLogger()
+    global _log_queue, _queue_listener, _listener_configured
+    
     log_level = log_level if log_level is not None else logging.INFO
     
-    # Only configure root logger if it hasn't been configured yet
-    if not root_logger.handlers:
-        root_logger.setLevel(log_level)
-        
-        # Create logs directory if it doesn't exist
-        logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
-        os.makedirs(logs_dir, exist_ok=True)
-        
-        # Set file log format (plain, no colors)
-        file_log_format = (
-            "%(asctime)s | "
-            "%(levelname)s | "
-            "%(name)s | "
-            "[%(processName)s-%(process)d] | "
-            "[%(threadName)s-%(thread)d] | "
-            "%(filename)s:%(lineno)d | "
-            "%(message)s"
-        )
-        date_format = '%Y-%m-%d %H:%M:%S'
-        
-        # Create file handler
-        file_formatter = logging.Formatter(file_log_format, date_format)
-
-        if rotation_interval_minutes and rotation_interval_minutes > 0:
-            file_handler = TimedRotatingFileHandler(
-                filename=os.path.join(logs_dir, "app.log"),
-                when='m',  # 'm' for minutes
-                interval=rotation_interval_minutes,
-                backupCount=log_backup_count,
-                encoding='utf-8',
-                delay=False
-            )
-        else:
-            file_handler = logging.FileHandler(os.path.join(logs_dir, "app.log"), encoding='utf-8')
-        
-        file_handler.setFormatter(file_formatter)
-        root_logger.addHandler(file_handler)
+    # Set up the queue listener if not already configured
+    if not _listener_configured:
+        setup_logging_listener(log_level, rotation_interval_minutes, log_backup_count)
     
     # Get the logger for this module
     logger = logging.getLogger(name)
     
-    # Only configure console handler if it hasn't been configured yet
-    if not logger.handlers:
-        # Create console handler
-        console_handler = logging.StreamHandler()
-        
-        # Calculate appropriate field widths
-        name_width, process_width, thread_width, file_width, level_width = calculate_field_widths()
-        
-        # Check if running in a tty environment
-        is_tty = sys.stdout.isatty()
-        
-        if is_tty:
-            # Set colored log format with fixed-width fields for terminal
-            log_format = "%(asctime)s | %(levelname_colored)s | %(name_colored)s | %(process_info_colored)s | %(thread_info_colored)s | %(file_info_colored)s | %(message)s"
-            date_format = '%Y-%m-%d %H:%M:%S'
-            
-            formatter = FixedWidthColoredFormatter(
-                log_format, 
-                date_format,
-                name_width=name_width,
-                process_width=process_width,
-                thread_width=thread_width,
-                file_width=file_width,
-                level_width=level_width
-            )
-        else:
-            # Set plain log format with fixed-width fields for non-terminals
-            log_format = (
-                "%(asctime)s | "
-                f"%(levelname)-{level_width}s | "
-                f"%(name)-{name_width}s | "
-                f"[%(processName)s-%(process)d] | "  # Remove unnecessary padding and use consistent separator
-                f"[%(threadName)s-%(thread)d] | "    # Remove unnecessary padding and use consistent separator
-                f"%(filename)s:%(lineno)d | "        # Remove unnecessary padding and use consistent separator
-                "%(message)s"
-            )
-            date_format = '%Y-%m-%d %H:%M:%S'
-            
-            formatter = logging.Formatter(log_format, date_format)
-            
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
-        
-        # Set log level
-        logger.setLevel(log_level)
+    # Remove any existing handlers to avoid duplicates
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+    
+    # Add a queue handler to this logger
+    queue_handler = QueueHandler(_log_queue)
+    logger.addHandler(queue_handler)
+    
+    # Set log level for this specific logger
+    logger.setLevel(log_level)
+    
+    # Ensure propagation is enabled to use the QueueHandler
+    logger.propagate = False  # Don't propagate to parent loggers since we're using a queue
     
     return logger
