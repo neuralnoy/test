@@ -13,7 +13,7 @@ from apps.app_counter.models.schemas import (
     StatusResponse
 )
 
-logger = get_logger("token_counter_app", rotation_hours=1)
+logger = get_logger("token_counter_app", rotation_minutes=1)
 
 # Get token limit from environment variables or use default
 TOKEN_LIMIT_PER_MINUTE = int(os.getenv("OPENAI_TOKEN_LIMIT_PER_MINUTE", "100000"))

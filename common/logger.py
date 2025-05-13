@@ -214,6 +214,7 @@ def get_logger(name: str, log_level: Optional[int] = None, rotation_minutes: Opt
         # Create file handler with time-based rotation if specified
         if rotation_minutes is not None:
             log_file = os.path.join(logs_dir, "app.log")
+            print(f"DEBUG LOGGER: Attempting to create TimedRotatingFileHandler for {log_file} with interval {rotation_minutes} minute(s).")
             # Use 'M' for minute-based rotation
             file_handler = TimedRotatingFileHandler(
                 filename=log_file,
@@ -224,12 +225,14 @@ def get_logger(name: str, log_level: Optional[int] = None, rotation_minutes: Opt
                 atTime=None  # Rotate at the start of the minute interval
             )
             file_handler.suffix = "%Y%m%d_%H%M%S"
+            print(f"DEBUG LOGGER: TimedRotatingFileHandler created. Initial rolloverAt: {time.ctime(file_handler.rolloverAt)}, Suffix: {file_handler.suffix}")
             
             # Add debugging info
             print(f"Log rotation configured: rotating every {rotation_minutes} minute(s), current time: {time.ctime()}, next rotation at: {time.ctime(file_handler.rolloverAt)}")
 
             # Custom namer to change the rotated log file's final name format
             def custom_namer(default_name):
+                print(f"DEBUG LOGGER (custom_namer): Received default_name: {default_name}")
                 # default_name is like '/path/to/logs/app.log.YYYYMMDD_HHMMSS'
                 dir_name = os.path.dirname(default_name)
                 base_filename = os.path.basename(default_name) # e.g., app.log.YYYYMMDD_HHMMSS
@@ -238,26 +241,35 @@ def get_logger(name: str, log_level: Optional[int] = None, rotation_minutes: Opt
                 if base_filename.startswith('app.log.') and len(base_filename.split('.')) > 2:
                     timestamp_str = base_filename.split('.')[-1] # Get the last part as timestamp
                     new_filename = f"app_{timestamp_str}.log"
-                    return os.path.join(dir_name, new_filename)
+                    final_path = os.path.join(dir_name, new_filename)
+                    print(f"DEBUG LOGGER (custom_namer): Returning new name: {final_path}")
+                    return final_path
+                print(f"DEBUG LOGGER (custom_namer): Format not matched, returning default_name: {default_name}")
                 return default_name # Fallback if format doesn't match
 
             file_handler.namer = custom_namer
 
             # Custom rotator to ensure file is moved and log the event
             def custom_rotator(source, dest):
+                print(f"DEBUG LOGGER (custom_rotator): Received source: {source}, dest: {dest}")
                 # source is like '/path/to/logs/app.log'
                 # dest is like '/path/to/logs/app_YYYYMMDD_HHMMSS.log' (returned by namer)
                 try:
                     if os.path.exists(source):
+                        print(f"DEBUG LOGGER (custom_rotator): Source '{source}' exists. Attempting rename to '{dest}'.")
                         # TimedRotatingFileHandler.doRollover() closes the file stream before calling rotator.
                         if os.path.exists(dest):
+                            print(f"DEBUG LOGGER (custom_rotator): Destination '{dest}' already exists. Removing it.")
                             os.remove(dest) 
                         os.rename(source, dest)
+                        print(f"DEBUG LOGGER (custom_rotator): Rename successful: '{source}' -> '{dest}'.")
                         # root_logger is defined in the outer scope of get_logger
                         root_logger.info(f"Log file rotated. Old: '{source}', New: '{dest}'")
                     else:
+                        print(f"DEBUG LOGGER (custom_rotator): Source file '{source}' not found. Rotation skipped.")
                         root_logger.warning(f"Log rotation: source file '{source}' not found.")
                 except Exception as e:
+                    print(f"DEBUG LOGGER (custom_rotator): EXCEPTION during rename from '{source}' to '{dest}': {e}")
                     root_logger.error(f"Error during log rotation from '{source}' to '{dest}': {e}", exc_info=True)
             
             file_handler.rotator = custom_rotator # Assign the new, correct rotator
