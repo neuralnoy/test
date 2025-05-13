@@ -6,6 +6,7 @@ import platform
 import sys
 import shutil
 from typing import Optional
+from logging.handlers import TimedRotatingFileHandler
 
 # Get terminal width, default to 120 if not available
 try:
@@ -172,7 +173,7 @@ def get_process_info() -> str:
     process = multiprocessing.current_process()
     return f"{process.name}-{process.pid}"
 
-def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
+def get_logger(name: str, log_level: Optional[int] = None, rotation_minutes: int = 60) -> logging.Logger:
     """
     Get a configured logger with colored output, fixed-width fields, and additional information.
     Also saves logs to a file in the logs directory at the root of the project.
@@ -180,6 +181,7 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
     Args:
         name: Name of the logger
         log_level: Optional log level to set (defaults to INFO)
+        rotation_minutes: Interval in minutes for log file rotation (defaults to 60)
     
     Returns:
         Configured logger instance
@@ -208,8 +210,18 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
         )
         date_format = '%Y-%m-%d %H:%M:%S'
         
-        # Create file handler
-        file_handler = logging.FileHandler(os.path.join(logs_dir, "app.log"))
+        # Create timed rotating file handler (instead of regular file handler)
+        log_file_path = os.path.join(logs_dir, "app.log")
+        file_handler = TimedRotatingFileHandler(
+            filename=log_file_path,
+            when='m',                    # 'm' for minutes
+            interval=rotation_minutes,   # Rotate every X minutes
+            backupCount=10,              # Keep 10 backup files by default
+            encoding='utf-8',
+            delay=False
+        )
+        # Use a suffix that includes date and time for easier identification
+        file_handler.suffix = "%Y-%m-%d_%H-%M-%S"
         file_formatter = logging.Formatter(file_log_format, date_format)
         file_handler.setFormatter(file_formatter)
         root_logger.addHandler(file_handler)
