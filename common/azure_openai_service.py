@@ -28,7 +28,7 @@ class AzureOpenAIService:
     Includes token usage tracking to prevent rate limit issues.
     """
     
-    def __init__(self, model: Optional[str] = None, app_id: str = "default_app", token_counter_url: str = "http://localhost:8001"):
+    def __init__(self, model: Optional[str] = None, app_id: str = "default_app", token_counter_url: str = "http://localhost:8001", token_counter_resource_uri: Optional[str] = None):
         """
         Initialize the Azure OpenAI service with credentials from environment variables.
         
@@ -36,14 +36,21 @@ class AzureOpenAIService:
             model: Optional default model to use. If not specified, uses the AZURE_OPENAI_DEPLOYMENT_NAME from .env.
             app_id: ID of the application using this service. Used for token tracking.
             token_counter_url: URL of the token counter service.
+            token_counter_resource_uri: Resource URI for authenticating with token counter service.
         """
         self.api_version = os.getenv("AZURE_OPENAI_API_VERSION")
         self.azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.default_model = model or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")
         self.app_id = app_id
         
-        # Initialize token client
-        self.token_client = TokenClient(app_id=app_id, base_url=token_counter_url)
+        # Initialize token client with authentication if resource URI is provided
+        use_auth = token_counter_resource_uri is not None
+        self.token_client = TokenClient(
+            app_id=app_id, 
+            base_url=token_counter_url,
+            resource_uri=token_counter_resource_uri,
+            use_auth=use_auth
+        )
         
         if not self.api_version or not self.azure_endpoint:
             raise ValueError("AZURE_OPENAI_API_VERSION and AZURE_OPENAI_ENDPOINT must be set in .env file or exported as environment variables")

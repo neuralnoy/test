@@ -2,6 +2,8 @@ import aiohttp
 from typing import Dict, Any, Optional, Tuple
 from common.logger import get_logger
 import time
+from azure.identity import DefaultAzureCredential
+from azure.core.exceptions import ClientAuthenticationError
 
 logger = get_logger("token_client")
 
@@ -10,16 +12,41 @@ class TokenClient:
     Client for interacting with the token counter service.
     Applications can use this to lock tokens, report usage, and release tokens.
     """
-    def __init__(self, app_id: str, base_url: str = "http://localhost:8000"):
+    def __init__(self, app_id: str, base_url: str = "http://localhost:8000", 
+                 resource_uri: Optional[str] = None, use_auth: bool = False):
         """
         Initialize the token client.
         
         Args:
             app_id: The ID of the application using this client
             base_url: The base URL of the token counter service
+            resource_uri: The resource URI for token authentication (e.g., "api://<app-id>")
+            use_auth: Whether to use Azure authentication
         """
         self.app_id = app_id
         self.base_url = base_url.rstrip("/")
+        self.resource_uri = resource_uri
+        self.use_auth = use_auth
+        self.credential = DefaultAzureCredential() if use_auth else None
+    
+    async def _get_auth_header(self) -> Dict[str, str]:
+        """
+        Get the authorization header for API requests.
+        
+        Returns:
+            Dictionary containing the Authorization header or empty dict if auth is disabled
+        """
+        if not self.use_auth or not self.resource_uri:
+            return {}
+            
+        try:
+            # Get token for the resource URI with .default scope
+            scope = f"{self.resource_uri}/.default"
+            token = self.credential.get_token(scope)
+            return {"Authorization": f"Bearer {token.token}"}
+        except ClientAuthenticationError as e:
+            logger.error(f"Authentication error: {str(e)}")
+            return {}
     
     async def lock_tokens(self, token_count: int) -> Tuple[bool, Optional[str], Optional[str]]:
         """
@@ -38,7 +65,10 @@ class TokenClient:
                     "app_id": self.app_id,
                     "token_count": token_count
                 }
-                async with session.post(url, json=data) as response:
+                
+                headers = await self._get_auth_header()
+                
+                async with session.post(url, json=data, headers=headers) as response:
                     response_data = await response.json()
                     
                     if response.status == 200 and response_data.get("allowed", False):
@@ -77,7 +107,9 @@ class TokenClient:
                     data["request_id"] = token_id
                     data["rate_request_id"] = rate_id
                 
-                async with session.post(url, json=data) as response:
+                headers = await self._get_auth_header()
+                
+                async with session.post(url, json=data, headers=headers) as response:
                     return response.status == 200
             except Exception as e:
                 logger.error(f"Error reporting token usage: {str(e)}")
@@ -107,7 +139,9 @@ class TokenClient:
                     data["request_id"] = token_id
                     data["rate_request_id"] = rate_id
                 
-                async with session.post(url, json=data) as response:
+                headers = await self._get_auth_header()
+                
+                async with session.post(url, json=data, headers=headers) as response:
                     return response.status == 200
             except Exception as e:
                 logger.error(f"Error releasing tokens: {str(e)}")
@@ -123,7 +157,10 @@ class TokenClient:
         async with aiohttp.ClientSession() as session:
             try:
                 url = f"{self.base_url}/status"
-                async with session.get(url) as response:
+                
+                headers = await self._get_auth_header()
+                
+                async with session.get(url, headers=headers) as response:
                     if response.status == 200:
                         status_data = await response.json()
                         
