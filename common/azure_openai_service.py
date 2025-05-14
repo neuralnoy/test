@@ -8,14 +8,14 @@ import tiktoken
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Callable
 
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 from common.logger import get_logger
 from common.retry_helpers import with_token_limit_retry
 
 # Import TokenClient from app_counter
-from apps.app_counter.services.token_client import TokenClient
+from common.token_client import TokenClient
 
 logger = get_logger("common")
 
@@ -51,21 +51,6 @@ class AzureOpenAIService:
         logger.info(f"Initializing Azure OpenAI service with endpoint: {self.azure_endpoint}")
         self.client = self._initialize_client()
     
-    def _get_bearer_token_provider(self) -> Callable[[], str]:
-        """
-        Get a bearer token provider using Azure Default Credentials.
-        
-        Returns:
-            Callable: A bearer token provider function.
-        """
-        credential = DefaultAzureCredential()
-        scope = f"{self.azure_endpoint}/.default"
-        
-        def bearer_token_provider():
-            token = credential.get_token(scope)
-            return token.token
-        
-        return bearer_token_provider
     
     def _initialize_client(self) -> AzureOpenAI:
         """
@@ -77,7 +62,10 @@ class AzureOpenAIService:
         return AzureOpenAI(
             api_version=self.api_version,
             azure_endpoint=self.azure_endpoint,
-            azure_ad_token_provider=self._get_bearer_token_provider()
+            azure_ad_token_provider=get_bearer_token_provider(
+                DefaultAzureCredential(),
+                scopes=[f"{self.azure_endpoint}/.default"]
+            )
         )
     
     def _get_encoding_for_model(self, model: str) -> Any:

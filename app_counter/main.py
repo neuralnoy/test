@@ -3,9 +3,9 @@ import asyncio
 from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
 from common.logger import get_logger
-from apps.app_counter.services.token_counter import TokenCounter
-from apps.app_counter.services.rate_counter import RateCounter
-from apps.app_counter.models.schemas import (
+from app_counter.services.token_counter import TokenCounter
+from app_counter.services.rate_counter import RateCounter
+from app_counter.models.schemas import (
     TokenRequest,
     TokenReport,
     ReleaseRequest,

@@ -1,5 +1,4 @@
 import aiohttp
-import asyncio
 from typing import Dict, Any, Optional, Tuple
 from common.logger import get_logger
 import time
@@ -11,7 +10,7 @@ class TokenClient:
     Client for interacting with the token counter service.
     Applications can use this to lock tokens, report usage, and release tokens.
     """
-    def __init__(self, app_id: str, base_url: str = "http://localhost:8001"):
+    def __init__(self, app_id: str, base_url: str = "http://localhost:8000"):
         """
         Initialize the token client.
         

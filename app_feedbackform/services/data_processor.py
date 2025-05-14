@@ -3,8 +3,8 @@ import json
 import asyncio
 from typing import Dict, Any, Optional
 from common.logger import get_logger
-from apps.app_feedbackform.models.schemas import InputFeedbackForm, OutputFeedbackForm, InternalFeedbackResult
-from apps.app_feedbackform.services.prompts import process_feedback
+from app_feedbackform.models.schemas import InputFeedbackForm, OutputFeedbackForm, InternalFeedbackResult
+from app_feedbackform.services.prompts.feedback_processor import process_feedback
 
 logger = get_logger("feedback_form_processor")
 

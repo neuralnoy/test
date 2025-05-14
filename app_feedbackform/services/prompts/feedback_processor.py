@@ -5,8 +5,8 @@ import json
 from typing import Dict, Any, Tuple
 from common.azure_openai_service import AzureOpenAIService
 from common.logger import get_logger
-from apps.app_feedbackform.services.prompts.hashtag_mapping import get_hashtag_mapping
-from apps.app_feedbackform.services.prompts.prompts import get_system_prompt, get_user_prompt
+from app_feedbackform.services.prompts.hashtag_mapping import get_hashtag_mapping
+from app_feedbackform.services.prompts.prompts import get_system_prompt, get_user_prompt
 
 logger = get_logger("feedback_processor")
 

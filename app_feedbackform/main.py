@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from common.service_bus import AsyncServiceBusHandler
 from common.logger import get_logger
-from apps.app_feedbackform.services.data_processor import process_data
+from app_feedbackform.services.data_processor import process_data
 
 logger = get_logger("feedback_form_app")
 
