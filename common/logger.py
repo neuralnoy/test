@@ -6,20 +6,10 @@ from typing import Optional
 
 def get_app_name() -> str:
     """
-    Get the application name from the directory containing main.py.
-    Returns the directory name if found, otherwise returns 'unknown_app'.
+    Get the application name from environment variable.
+    Returns the APP_NAME if set, otherwise returns 'unknown_app'.
     """
-    try:
-        # Start from the current directory and walk up until we find main.py
-        current_path = os.path.abspath(os.getcwd())
-        while current_path != os.path.dirname(current_path):  # Stop at root directory
-            if os.path.exists(os.path.join(current_path, 'main.py')):
-                return os.path.basename(current_path)
-            current_path = os.path.dirname(current_path)
-        return 'unknown_app'
-    except Exception as e:
-        logging.error(f"Error determining app name: {str(e)}")
-        return 'unknown_app'
+    return os.getenv('APP_NAME', 'unknown_app')
 
 def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
     """
@@ -58,7 +48,7 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
     root_logger = logging.getLogger()
     if not root_logger.handlers:
         try:
-            # Get app name from main.py directory
+            # Get app name from environment variable
             app_name = get_app_name()
             
             # Create logs directory
@@ -81,7 +71,7 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
             
             # Log a warning if using unknown_app
             if app_name == 'unknown_app':
-                logger.warning("Could not find main.py in directory structure. Using 'unknown_app' as fallback.")
+                logger.warning("APP_NAME environment variable not set. Using 'unknown_app' as fallback.")
                 
         except Exception as e:
             logger.error(f"Failed to configure file logging: {str(e)}")
