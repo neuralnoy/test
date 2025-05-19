@@ -30,6 +30,37 @@ async def lifespan(app: FastAPI):
     """
     # Startup logic
     logger.info("Starting Feedback Form Processor app")
+    
+    # Initialize log monitoring service if configured
+    logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+    account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
+    container_name = os.getenv("AZURE_LOGS_CONTAINER_NAME", "application-logs")
+    retention_days = int(os.getenv("AZURE_LOGS_RETENTION_DAYS", "30"))
+    scan_interval = int(os.getenv("LOG_SCAN_INTERVAL", "60"))
+    
+    # Only initialize if blob storage is configured
+    if account_url:
+        from common.log_monitor import LogMonitorService
+        
+        logger.info(f"Initializing log monitor service to upload to {account_url}/{container_name}")
+        log_monitor = LogMonitorService(
+            logs_dir=logs_dir,
+            account_url=account_url,
+            container_name=container_name,
+            retention_days=retention_days,
+            scan_interval=scan_interval
+        )
+        
+        monitor_initialized = await log_monitor.initialize()
+        if monitor_initialized:
+            logger.info("Log monitor service initialized successfully")
+            app.state.log_monitor = log_monitor
+        else:
+            logger.warning("Failed to initialize log monitor service")
+    else:
+        logger.info("Azure Blob Storage not configured - log uploads disabled")
+    
+    # Start service bus handler
     listener_task = asyncio.create_task(service_bus_handler.listen())
     logger.info("Service bus handler started")
     
@@ -37,6 +68,13 @@ async def lifespan(app: FastAPI):
     
     # Shutdown logic
     logger.info("Shutting down Feedback Form Processor app")
+    
+    # Shut down the log monitor if it was initialized
+    if hasattr(app.state, "log_monitor"):
+        logger.info("Shutting down log monitor service")
+        await app.state.log_monitor.shutdown()
+    
+    # Stop the service bus handler
     await service_bus_handler.stop()
     logger.info("Service bus handler stopped")
 
