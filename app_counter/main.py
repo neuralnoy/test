@@ -36,17 +36,21 @@ async def lifespan(app: FastAPI):
     # Initialize log monitoring service if configured
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
     account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
+    account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
     container_name = os.getenv("AZURE_LOGS_CONTAINER_NAME", "application-logs")
     retention_days = int(os.getenv("AZURE_LOGS_RETENTION_DAYS", "30"))
     scan_interval = int(os.getenv("LOG_SCAN_INTERVAL", "60"))
     
-    # Only initialize if blob storage is configured
-    if account_url:
+    # Only initialize if blob storage is configured (either by URL or account name)
+    if account_url or account_name:
         from common.log_monitor import LogMonitorService
         
-        logger.info(f"Initializing log monitor service to upload to {account_url}/{container_name}")
+        storage_endpoint = account_url or f"https://{account_name}.blob.core.windows.net"
+        logger.info(f"Initializing log monitor service to upload to {storage_endpoint}/{container_name}")
+        
         log_monitor = LogMonitorService(
             logs_dir=logs_dir,
+            account_name=account_name,
             account_url=account_url,
             container_name=container_name,
             retention_days=retention_days,

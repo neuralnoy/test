@@ -19,12 +19,17 @@ When configured, rotated log files are automatically uploaded to Azure Blob Stor
 
 ### Configuration
 
-To enable log uploads to Azure Blob Storage, set the following environment variables:
+To enable log uploads to Azure Blob Storage, set one of the following environment variables:
 
 ```bash
-# Azure Storage Account URL
+# Option 1: Just provide the storage account name (recommended)
+AZURE_STORAGE_ACCOUNT_NAME=youraccount
+# The URL will be constructed as: https://youraccount.blob.core.windows.net
+
+# Option 2: Provide the full storage account URL
 AZURE_STORAGE_ACCOUNT_URL=https://youraccount.blob.core.windows.net
 
+# Additional configuration
 # Container name for logs (default: application-logs)
 AZURE_LOGS_CONTAINER_NAME=application-logs
 

@@ -21,6 +21,7 @@ class LogMonitorService:
     def __init__(
         self, 
         logs_dir: str,
+        account_name: Optional[str] = None,
         account_url: Optional[str] = None,
         container_name: str = "application-logs",
         retention_days: int = 30,
@@ -31,13 +32,22 @@ class LogMonitorService:
         
         Args:
             logs_dir: Directory containing log files to monitor
-            account_url: Azure Storage account URL (required for uploads)
+            account_name: Azure Storage account name (will construct URL as https://{account_name}.blob.core.windows.net)
+            account_url: Azure Storage account URL (will be used if provided, otherwise constructed from account_name)
             container_name: Name of the container to store logs
             retention_days: Number of days to retain logs in blob storage
             scan_interval: How often to scan for new log files (in seconds)
         """
         self.logs_dir = logs_dir
-        self.account_url = account_url
+        
+        # Determine the account URL - either use the provided URL or construct from account name
+        if account_url:
+            self.account_url = account_url
+        elif account_name:
+            self.account_url = f"https://{account_name}.blob.core.windows.net"
+        else:
+            self.account_url = None
+            
         self.container_name = container_name
         self.retention_days = retention_days
         self.scan_interval = scan_interval
