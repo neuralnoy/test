@@ -133,9 +133,10 @@ class LogMonitorService:
                 return
                 
             for filename in os.listdir(self.logs_dir):
-                # Only process rotated log files (with a date suffix after .log)
-                # This matches the TimedRotatingFileHandler pattern we're using in logger.py
-                if ".log." in filename:
+                # Only process rotated log files (with underscore and date before .log)
+                # This matches the custom namer pattern we're using in logger.py:
+                # file_handler.namer = lambda name: name.replace(".log", f"_{name.split('.')[-1]}.log")
+                if "_" in filename and filename.endswith(".log") and not filename.endswith(".current.log"):
                     file_path = os.path.join(self.logs_dir, filename)
                     
                     # Skip already processed files
