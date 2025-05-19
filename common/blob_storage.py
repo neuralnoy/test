@@ -77,13 +77,14 @@ class AsyncBlobStorageUploader:
             logger.error(f"Failed to initialize Blob Storage Uploader: {str(e)}")
             return False
         
-    async def upload_file(self, file_path: str, blob_name: Optional[str] = None) -> None:
+    async def upload_file(self, file_path: str, blob_name: Optional[str] = None, app_name: Optional[str] = None) -> None:
         """
         Queue a file for upload to Azure Blob Storage.
         
         Args:
             file_path: Path to the file to upload
             blob_name: Name of the blob in the container (defaults to file basename)
+            app_name: Optional application name to use as directory prefix
         """
         if not self._initialized:
             success = await self.initialize()
@@ -93,17 +94,21 @@ class AsyncBlobStorageUploader:
             
         if not blob_name:
             blob_name = os.path.basename(file_path)
-            
+        
+        # If app_name is provided, prepend it to the blob_name
+        if app_name:
+            blob_name = f"{app_name}/{blob_name}"
+        
         # Check if file exists
         if not os.path.exists(file_path):
             logger.error(f"File {file_path} does not exist, cannot upload")
             return
-            
+        
         # Check if already processed
         if file_path in self._processed_files:
             logger.info(f"File {file_path} already processed, skipping")
             return
-            
+        
         # Queue the file for upload
         await self._upload_queue.put((file_path, blob_name))
         logger.debug(f"Queued {file_path} for upload as {blob_name}")

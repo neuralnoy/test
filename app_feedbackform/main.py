@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
     container_name = os.getenv("AZURE_LOGS_CONTAINER_NAME", "application-logs")
     retention_days = int(os.getenv("AZURE_LOGS_RETENTION_DAYS", "30"))
     scan_interval = int(os.getenv("LOG_SCAN_INTERVAL", "60"))
+    app_name = os.getenv("APP_NAME")  # Get app name from environment variables
     
     # Only initialize if blob storage is configured (either by URL or account name)
     if account_url or account_name:
@@ -51,6 +52,7 @@ async def lifespan(app: FastAPI):
             account_name=account_name,
             account_url=account_url,
             container_name=container_name,
+            app_name=app_name,  # Pass app_name to the LogMonitorService
             retention_days=retention_days,
             scan_interval=scan_interval
         )

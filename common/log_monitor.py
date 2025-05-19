@@ -24,6 +24,7 @@ class LogMonitorService:
         account_name: Optional[str] = None,
         account_url: Optional[str] = None,
         container_name: str = "application-logs",
+        app_name: Optional[str] = None,
         retention_days: int = 30,
         scan_interval: int = 60  # Scan every 60 seconds
     ):
@@ -35,6 +36,7 @@ class LogMonitorService:
             account_name: Azure Storage account name (will construct URL as https://{account_name}.blob.core.windows.net)
             account_url: Azure Storage account URL (will be used if provided, otherwise constructed from account_name)
             container_name: Name of the container to store logs
+            app_name: Optional application name to use as directory prefix for blob uploads
             retention_days: Number of days to retain logs in blob storage
             scan_interval: How often to scan for new log files (in seconds)
         """
@@ -49,6 +51,7 @@ class LogMonitorService:
             self.account_url = None
             
         self.container_name = container_name
+        self.app_name = app_name
         self.retention_days = retention_days
         self.scan_interval = scan_interval
         self.uploader = None
@@ -165,7 +168,7 @@ class LogMonitorService:
             for file_path, _ in log_files:
                 logger.info(f"Processing rotated log file: {file_path}")
                 try:
-                    await self.uploader.upload_file(file_path)
+                    await self.uploader.upload_file(file_path, app_name=self.app_name)
                     self._processed_files.add(file_path)
                 except Exception as e:
                     logger.error(f"Error processing {file_path}: {str(e)}")
