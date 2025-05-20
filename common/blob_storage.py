@@ -51,7 +51,11 @@ class AsyncBlobStorageUploader:
         logger.info(f"Initializing Blob Storage Uploader with container {self.container_name}")
         
         # Verify we can connect to Azure Blob Storage
+        credential = None
+        blob_service_client = None
+        
         try:
+            # Create credential and client for testing
             credential = DefaultAzureCredential()
             blob_service_client = BlobServiceClient(
                 account_url=self.account_url,
@@ -59,13 +63,12 @@ class AsyncBlobStorageUploader:
             )
             
             # Test connection by listing containers
-            async with blob_service_client:
-                containers = []
-                async for container in blob_service_client.list_containers(name_starts_with=self.container_name):
-                    containers.append(container["name"])
-                
-                if self.container_name not in containers:
-                    logger.info(f"Container {self.container_name} not found, will be created when needed")
+            containers = []
+            async for container in blob_service_client.list_containers(name_starts_with=self.container_name):
+                containers.append(container["name"])
+            
+            if self.container_name not in containers:
+                logger.info(f"Container {self.container_name} not found, will be created when needed")
             
             # Create and start the upload worker task
             self._upload_task = asyncio.create_task(self._upload_worker())
@@ -76,6 +79,12 @@ class AsyncBlobStorageUploader:
         except Exception as e:
             logger.error(f"Failed to initialize Blob Storage Uploader: {str(e)}")
             return False
+        finally:
+            # Make sure to close resources even when successful
+            if blob_service_client:
+                await blob_service_client.close()
+            if credential:
+                await credential.close()
         
     async def upload_file(self, file_path: str, blob_name: Optional[str] = None, app_name: Optional[str] = None) -> None:
         """
@@ -163,6 +172,9 @@ class AsyncBlobStorageUploader:
             logger.error(f"File {file_path} does not exist, cannot upload")
             return False
             
+        credential = None
+        blob_service_client = None
+        
         try:
             # Create credentials and client
             credential = DefaultAzureCredential()
@@ -171,48 +183,48 @@ class AsyncBlobStorageUploader:
                 credential=credential
             )
             
+            # Get the container client
+            container_client = blob_service_client.get_container_client(self.container_name)
+            
+            # Create container if it doesn't exist
             try:
-                # Get the container client
-                container_client = blob_service_client.get_container_client(self.container_name)
-                
-                # Create container if it doesn't exist
-                try:
-                    await container_client.create_container()
-                    logger.info(f"Created container {self.container_name}")
-                except Exception:
-                    # Container might already exist (409 error)
-                    pass
-                
-                # Get the blob client
-                blob_client = container_client.get_blob_client(blob_name)
-                
-                # Set expiration time if retention_days is specified
-                headers = {}
-                if self.retention_days:
-                    expiry = datetime.utcnow() + timedelta(days=self.retention_days)
-                    headers["x-ms-expiry-time"] = expiry.strftime("%a, %d %b %Y %H:%M:%S GMT")
-                
-                # Upload the file
-                file_size = os.path.getsize(file_path)
-                logger.info(f"Uploading {file_path} ({file_size} bytes) to blob storage as {blob_name}")
-                
-                async with open(file_path, "rb") as data:
-                    await blob_client.upload_blob(
-                        data, 
-                        overwrite=True,
-                        headers=headers
-                    )
-                
-                return True
-                
-            finally:
-                # Clean up resources
-                await blob_service_client.close()
-                await credential.close()
+                await container_client.create_container()
+                logger.info(f"Created container {self.container_name}")
+            except Exception:
+                # Container might already exist (409 error)
+                pass
+            
+            # Get the blob client
+            blob_client = container_client.get_blob_client(blob_name)
+            
+            # Set expiration time if retention_days is specified
+            headers = {}
+            if self.retention_days:
+                expiry = datetime.utcnow() + timedelta(days=self.retention_days)
+                headers["x-ms-expiry-time"] = expiry.strftime("%a, %d %b %Y %H:%M:%S GMT")
+            
+            # Upload the file
+            file_size = os.path.getsize(file_path)
+            logger.info(f"Uploading {file_path} ({file_size} bytes) to blob storage as {blob_name}")
+            
+            async with open(file_path, "rb") as data:
+                await blob_client.upload_blob(
+                    data, 
+                    overwrite=True,
+                    headers=headers
+                )
+            
+            return True
                 
         except Exception as e:
             logger.error(f"Error uploading {file_path} to blob storage: {str(e)}")
             return False
+        finally:
+            # Always clean up resources
+            if blob_service_client:
+                await blob_service_client.close()
+            if credential:
+                await credential.close()
             
     async def shutdown(self) -> None:
         """Gracefully shut down the uploader and wait for pending uploads to complete."""
