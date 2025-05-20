@@ -56,7 +56,7 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
             os.makedirs(logs_dir, exist_ok=True)
             
             # Create rotating file handler with daily rotation
-            file_path = os.path.join(logs_dir, f"{app_name}.log")
+            file_path = os.path.join(logs_dir, f"{app_name}.current.log")
             file_handler = TimedRotatingFileHandler(
                 filename=file_path,
                 when='midnight',
@@ -64,7 +64,7 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
                 backupCount=30,  # Keep logs for 30 days
             )
             # Set custom naming pattern for rotated files
-            file_handler.namer = lambda name: name.replace(".log", f"_{name.split('.')[-1]}.log")
+            file_handler.namer = lambda name: f"{name.split('.')[0]}_{name.split('.')[-1]}.log"
             file_handler.setFormatter(formatter)
             root_logger.addHandler(file_handler)
             root_logger.setLevel(log_level)
