@@ -203,16 +203,20 @@ class AsyncBlobStorageUploader:
                 expiry = datetime.utcnow() + timedelta(days=self.retention_days)
                 headers["x-ms-expiry-time"] = expiry.strftime("%a, %d %b %Y %H:%M:%S GMT")
             
-            # Upload the file
+            # Upload the file - use a synchronous open, then upload the data
             file_size = os.path.getsize(file_path)
             logger.info(f"Uploading {file_path} ({file_size} bytes) to blob storage as {blob_name}")
             
-            async with open(file_path, "rb") as data:
-                await blob_client.upload_blob(
-                    data, 
-                    overwrite=True,
-                    headers=headers
-                )
+            # Use regular (non-async) file opening, then upload the data
+            with open(file_path, "rb") as f:
+                data = f.read()
+            
+            # Upload the data from memory
+            await blob_client.upload_blob(
+                data, 
+                overwrite=True,
+                headers=headers
+            )
             
             return True
                 
