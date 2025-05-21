@@ -13,10 +13,10 @@ The system consists of the following main components:
 ### High-Level Flow
 
 ```
-Customer Feedback -> Service Bus Queue -> Feedback Processor -> AI Analysis -> Processed Results
-                                           ↑                       ↑
-                                           |                       |
-                                           └─── Token Counter Service ───┘
+Data (Feedback, Call, etc.) -> Service Bus Queue -> Feedback Processor -> AI Analysis -> Processed Results
+                                                       ↑                       ↑
+                                                       |                       |
+                                                       └─── Token Counter Service ───┘
 ```
 
 ## Features
@@ -29,30 +29,58 @@ Customer Feedback -> Service Bus Queue -> Feedback Processor -> AI Analysis -> P
 - **Horizontal Scaling**: Supports multiple worker processes for high throughput
 - **Health Monitoring**: Endpoints for health checks and status reporting
 - **Secure Authentication**: Azure Identity integration for secure access to Azure services
+- **Blob Storage Integration**: Support for Azure Blob Storage operations
 
 ## Project Structure
 
 ```
-├── apps/
-│   ├── app_feedbackform/        # Feedback processing service
-│   │   ├── models/              # Data models
-│   │   ├── services/            # Service implementations
-│   │   │   └── prompts/         # OpenAI prompts and processors
-│   │   ├── main.py              # FastAPI application
-│   │   └── README.md            # Service documentation
-│   └── app_counter/             # Token counter service
-│       ├── models/              # Data models
-│       ├── services/            # Service implementations
-│       ├── main.py              # FastAPI application
-│       └── README.md            # Service documentation
+├── app_counter/                 # Token counter service
+│   ├── models/                  # Data models
+│   │   ├── __init__.py
+│   │   └── schemas.py           # Pydantic schemas for token counter
+│   ├── services/                # Service implementations
+│   │   ├── __init__.py
+│   │   ├── rate_counter.py      # Rate limit tracking implementation
+│   │   └── token_counter.py     # Token counting implementation
+│   ├── __init__.py
+│   ├── main.py                  # FastAPI application
+│   └── README.md                # Service documentation
+├── app_feedbackform/            # Feedback processing service
+│   ├── models/                  # Data models
+│   │   ├── __init__.py
+│   │   └── schemas.py           # Pydantic schemas for feedback data
+│   ├── services/                # Service implementations
+│   │   ├── prompts/             # OpenAI prompts and processors
+│   │   │   ├── __init__.py
+│   │   │   ├── feedback_processor.py  # Processes feedback with AI
+│   │   │   ├── hashtag_mapping.py     # Maps feedback to hashtags 
+│   │   │   └── prompts.py             # Prompt templates
+│   │   ├── __init__.py
+│   │   └── data_processor.py    # Main data processing logic
+│   ├── __init__.py
+│   ├── main.py                  # FastAPI application
+│   └── README.md                # Service documentation
 ├── common/                      # Shared utilities and services
+│   ├── __init__.py
 │   ├── azure_openai_service.py  # Azure OpenAI client
-│   ├── service_bus.py           # Service Bus handler
+│   ├── blob_storage.py          # Azure Blob Storage client
+│   ├── log_monitor.py           # Monitoring service for logs
 │   ├── logger.py                # Logging utilities
 │   ├── retry_helpers.py         # Retry logic for rate limits
+│   ├── service_bus.py           # Service Bus handler
+│   ├── token_client.py          # Client for token counter service
 │   └── README.md                # Common library documentation
-├── requirements.txt             # Python dependencies
-└── README.md                    # This file
+├── tests/                       # Test suite
+│   ├── integrationtests/        # Integration tests
+│   ├── unittests/               # Unit tests
+│   └── README.md                # Testing documentation
+├── .gitignore                   # Git ignore file
+├── deployment_guide.md          # Azure deployment guide
+├── manage.py                    # Management script
+├── pytest.ini                   # PyTest configuration
+├── requirements.txt             # Main Python dependencies
+├── test_logger.py               # Logger testing script
+└── test_requirements.txt        # Test dependencies
 ```
 
 ## Getting Started
@@ -62,6 +90,7 @@ Customer Feedback -> Service Bus Queue -> Feedback Processor -> AI Analysis -> P
 - Python 3.8+
 - Azure Service Bus namespace
 - Azure OpenAI endpoint
+- Azure Blob Storage account (optional)
 
 ### Setup
 
@@ -88,6 +117,10 @@ export AZURE_OPENAI_DEPLOYMENT_NAME="gpt-4"
 
 # Token limit (optional, default is 100,000)
 export OPENAI_TOKEN_LIMIT_PER_MINUTE="100000"
+
+# Azure Blob Storage (optional)
+export AZURE_STORAGE_ACCOUNT="your-storage-account"
+export AZURE_STORAGE_CONTAINER="your-container"
 ```
 
 ## Running the Services
@@ -95,13 +128,34 @@ export OPENAI_TOKEN_LIMIT_PER_MINUTE="100000"
 ### Token Counter Service
 
 ```bash
-uvicorn apps.app_counter.main:app --host 0.0.0.0 --port 8001 --workers 4
+uvicorn app_counter.main:app --host 0.0.0.0 --port 8001 --workers 4
 ```
 
 ### Feedback Form Service
 
 ```bash
-uvicorn apps.app_feedbackform.main:app --host 0.0.0.0 --port 8000 --workers 4
+uvicorn app_feedbackform.main:app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+## Testing
+
+This project includes both unit tests and integration tests:
+
+```bash
+# Install test dependencies
+pip install -r test_requirements.txt
+
+# Run all tests
+pytest
+
+# Run tests with coverage
+pytest --cov=.
+
+# Run only unit tests
+pytest tests/unittests/
+
+# Run only integration tests
+pytest tests/integrationtests/
 ```
 
 ## Authentication
@@ -113,13 +167,16 @@ The services use Azure Identity's DefaultAzureCredential for authentication, whi
 - Visual Studio Code credentials
 - Interactive browser authentication
 
+For detailed deployment and authentication setup, see the [Deployment Guide](./deployment_guide.md).
+
 ## Detailed Documentation
 
 Each component has its own detailed README file:
 
-- [Feedback Form Processing Service](./apps/app_feedbackform/README.md)
-- [Token Counter Service](./apps/app_counter/README.md)
+- [Feedback Form Processing Service](./app_feedbackform/README.md)
+- [Token Counter Service](./app_counter/README.md)
 - [Common Library](./common/README.md)
+- [Tests](./tests/README.md)
 
 ## Key Technical Implementation Details
 
@@ -141,6 +198,15 @@ Messages are processed asynchronously with robust error handling:
 2. Messages are processed concurrently with asyncio
 3. Results are sent to an output queue
 4. Comprehensive error handling ensures no messages are lost
+
+### Blob Storage Integration
+
+The system supports Azure Blob Storage for:
+
+1. Storing large inputs and outputs
+2. Backing up processed data
+3. Sharing data between services
+4. Long-term archiving of results
 
 ### Retry Logic with Intelligent Backoff
 
