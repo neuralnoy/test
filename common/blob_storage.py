@@ -20,7 +20,9 @@ class AsyncBlobStorageUploader:
         self,
         account_url: str,
         container_name: str,
-        retention_days: Optional[int] = 30
+        retention_days: Optional[int] = 30,
+        max_retries: int = 3,
+        retry_delay: float = 2.0
     ):
         """
         Initialize the Azure Blob Storage uploader.
@@ -29,10 +31,14 @@ class AsyncBlobStorageUploader:
             account_url: Azure Storage account URL (e.g., https://accountname.blob.core.windows.net)
             container_name: Name of the container to store uploaded files
             retention_days: Optional number of days to retain files before expiry (30 by default)
+            max_retries: Maximum number of retry attempts for failed uploads
+            retry_delay: Base delay between retries in seconds (uses exponential backoff)
         """
         self.account_url = account_url
         self.container_name = container_name
         self.retention_days = retention_days
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
         self._initialized = False
         self._upload_queue = asyncio.Queue()
         self._upload_task = None
@@ -171,64 +177,72 @@ class AsyncBlobStorageUploader:
         if not os.path.exists(file_path):
             logger.error(f"File {file_path} does not exist, cannot upload")
             return False
+
+        # Implement retry logic with exponential backoff
+        for attempt in range(self.max_retries):
+            credential = None
+            blob_service_client = None
             
-        credential = None
-        blob_service_client = None
-        
-        try:
-            # Create credentials and client
-            credential = DefaultAzureCredential()
-            blob_service_client = BlobServiceClient(
-                account_url=self.account_url,
-                credential=credential
-            )
-            
-            # Get the container client
-            container_client = blob_service_client.get_container_client(self.container_name)
-            
-            # Create container if it doesn't exist
             try:
-                await container_client.create_container()
-                logger.info(f"Created container {self.container_name}")
-            except Exception:
-                # Container might already exist (409 error)
-                pass
-            
-            # Get the blob client
-            blob_client = container_client.get_blob_client(blob_name)
-            
-            # Set expiration time if retention_days is specified
-            headers = {}
-            if self.retention_days:
-                expiry = datetime.utcnow() + timedelta(days=self.retention_days)
-                headers["x-ms-expiry-time"] = expiry.strftime("%a, %d %b %Y %H:%M:%S GMT")
-            
-            # Upload the file - use a synchronous open, then upload the data
-            file_size = os.path.getsize(file_path)
-            logger.info(f"Uploading {file_path} ({file_size} bytes) to blob storage as {blob_name}")
-            
-            # Use regular (non-async) file opening, then upload the data
-            with open(file_path, "rb") as f:
-                data = f.read()
-            
-            # Upload the data from memory
-            await blob_client.upload_blob(
-                data, 
-                overwrite=True,
-                headers=headers
-            )
-            
-            return True
+                # Create credentials and client
+                credential = DefaultAzureCredential()
+                blob_service_client = BlobServiceClient(
+                    account_url=self.account_url,
+                    credential=credential
+                )
                 
-        except Exception as e:
-            logger.error(f"Error uploading {file_path} to blob storage: {str(e)}")
-            return False
-        finally:
-            # Always clean up resources
-            if blob_service_client:
-                await blob_service_client.close()
-            if credential:
-                await credential.close()
+                # Get the container client
+                container_client = blob_service_client.get_container_client(self.container_name)
+                
+                # Create container if it doesn't exist
+                try:
+                    await container_client.create_container()
+                    logger.info(f"Created container {self.container_name}")
+                except Exception:
+                    # Container might already exist (409 error)
+                    pass
+                
+                # Get the blob client
+                blob_client = container_client.get_blob_client(blob_name)
+                
+                # Set expiration time if retention_days is specified
+                headers = {}
+                if self.retention_days:
+                    expiry = datetime.utcnow() + timedelta(days=self.retention_days)
+                    headers["x-ms-expiry-time"] = expiry.strftime("%a, %d %b %Y %H:%M:%S GMT")
+                
+                # Upload the file - use a synchronous open, then upload the data
+                file_size = os.path.getsize(file_path)
+                logger.info(f"Uploading {file_path} ({file_size} bytes) to blob storage as {blob_name}")
+                
+                # Use regular (non-async) file opening, then upload the data
+                with open(file_path, "rb") as f:
+                    data = f.read()
+                
+                # Upload the data from memory
+                await blob_client.upload_blob(
+                    data, 
+                    overwrite=True,
+                    headers=headers
+                )
+                
+                return True
+                    
+            except Exception as e:
+                if attempt < self.max_retries - 1:
+                    delay = self.retry_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"Error uploading {file_path} (attempt {attempt+1}/{self.max_retries}): {str(e)}")
+                    logger.info(f"Retrying in {delay:.1f} seconds...")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"Error uploading {file_path} after {self.max_retries} attempts: {str(e)}")
+                    return False
+            finally:
+                # Always clean up resources
+                if blob_service_client:
+                    await blob_service_client.close()
+                if credential:
+                    await credential.close()
             
     async def shutdown(self) -> None:
         """Gracefully shut down the uploader and wait for pending uploads to complete."""

@@ -57,6 +57,7 @@ class LogMonitorService:
         self.uploader = None
         self._monitor_task = None
         self._processed_files: Set[str] = set()
+        self._failed_files: Set[str] = set()  # Track failed files for retry
         self._last_scan_time = 0
         self._running = False
         
@@ -97,24 +98,23 @@ class LogMonitorService:
     
     async def _monitor_loop(self) -> None:
         """Background task that periodically scans for rotated log files."""
-        try:
-            logger.info("Starting log file monitor loop")
-            
-            # Do an initial scan
-            await self._scan_for_rotated_logs()
-            
-            # Then scan periodically
-            while self._running:
-                # Wait for the scan interval
-                await asyncio.sleep(self.scan_interval)
-                
+        logger.info("Starting log file monitor loop")
+        
+        while self._running:
+            try:
                 # Scan for rotated logs
                 await self._scan_for_rotated_logs()
                 
-        except asyncio.CancelledError:
-            logger.info("Log monitor task cancelled")
-        except Exception as e:
-            logger.error(f"Error in log monitor loop: {str(e)}")
+                # Wait for the scan interval
+                await asyncio.sleep(self.scan_interval)
+                
+            except asyncio.CancelledError:
+                logger.info("Log monitor task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in log monitor loop: {str(e)}")
+                # Add short sleep to avoid tight loop in case of recurring errors
+                await asyncio.sleep(5)
             
     async def _scan_for_rotated_logs(self) -> None:
         """Scan for and upload rotated log files."""
@@ -155,6 +155,21 @@ class LogMonitorService:
                     except Exception as e:
                         logger.error(f"Error checking file {file_path}: {str(e)}")
             
+            # Add failed files from previous attempts to the processing list
+            retry_files = list(self._failed_files)
+            if retry_files:
+                logger.info(f"Retrying {len(retry_files)} previously failed uploads")
+                for file_path in retry_files:
+                    if os.path.exists(file_path) and file_path not in self._processed_files:
+                        try:
+                            stats = os.stat(file_path)
+                            log_files.append((file_path, stats.st_mtime))
+                        except Exception as e:
+                            logger.error(f"Error checking retry file {file_path}: {str(e)}")
+            
+            # Clear the failed files set for this cycle
+            self._failed_files.clear()
+            
             # If no files found, we're done
             if not log_files:
                 logger.debug("No new rotated log files found")
@@ -173,6 +188,8 @@ class LogMonitorService:
                     self._processed_files.add(file_path)
                 except Exception as e:
                     logger.error(f"Error processing {file_path}: {str(e)}")
+                    # Add to failed files for retry next time
+                    self._failed_files.add(file_path)
                 
         except Exception as e:
             logger.error(f"Error scanning for rotated logs: {str(e)}")
