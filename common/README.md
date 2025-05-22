@@ -194,9 +194,10 @@ Asynchronous client for uploading files to Azure Blob Storage.
 - Automatic container creation if needed
 - File expiration settings with retention days
 - Proper resource management with async context managers
-- **Retry Logic**: Implements exponential backoff for failed uploads with configurable retry count
-- **Error Handling**: Categorizes errors as retriable (network, throttling) vs. non-retriable (auth, permissions)
-- **Connection Recovery**: Automatically re-establishes connection after transient failures
+- **Retry Logic**: Implements configurable exponential backoff for failed uploads (default: 3 retries)
+- **Two-stage Delay**: Uses a fixed 1-second initial delay followed by increasing exponential backoff
+- **Resource Management**: Creates fresh connections for each upload attempt and properly closes them
+- **Worker Recovery**: Upload worker continues processing queue even if individual uploads fail
 
 #### Usage
 ```python
@@ -205,7 +206,9 @@ from common.blob_storage import AsyncBlobStorageUploader
 # Initialize uploader
 uploader = AsyncBlobStorageUploader(
     account_url="https://myaccount.blob.core.windows.net",
-    container_name="my-container"
+    container_name="my-container",
+    max_retries=3,
+    retry_delay=2.0
 )
 await uploader.initialize()
 
@@ -232,9 +235,10 @@ Service for monitoring and uploading rotated log files to blob storage.
 - Tracks already processed files to avoid duplicates
 - Sorts files by modification time for ordered processing
 - Works with TimedRotatingFileHandler from Python logging
-- **Resilient Scanning**: Continues operation even if individual file processing fails
-- **Upload Retry**: Leverages the underlying blob storage retry mechanism for upload reliability
-- **Persistent Tracking**: Maintains record of failed uploads for retry in subsequent scan cycles
+- **Resilient Operation**: Continues operating even if individual file uploads fail
+- **Failed Upload Tracking**: Maintains a set of failed uploads to retry in subsequent scan cycles
+- **Final Scan**: Performs one last scan for new log files during shutdown process
+- **Error Isolation**: Errors in one file upload don't affect processing of other files
 
 #### Usage
 ```python
