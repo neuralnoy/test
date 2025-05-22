@@ -194,6 +194,9 @@ Asynchronous client for uploading files to Azure Blob Storage.
 - Automatic container creation if needed
 - File expiration settings with retention days
 - Proper resource management with async context managers
+- **Retry Logic**: Implements exponential backoff for failed uploads with configurable retry count
+- **Error Handling**: Categorizes errors as retriable (network, throttling) vs. non-retriable (auth, permissions)
+- **Connection Recovery**: Automatically re-establishes connection after transient failures
 
 #### Usage
 ```python
@@ -229,6 +232,9 @@ Service for monitoring and uploading rotated log files to blob storage.
 - Tracks already processed files to avoid duplicates
 - Sorts files by modification time for ordered processing
 - Works with TimedRotatingFileHandler from Python logging
+- **Resilient Scanning**: Continues operation even if individual file processing fails
+- **Upload Retry**: Leverages the underlying blob storage retry mechanism for upload reliability
+- **Persistent Tracking**: Maintains record of failed uploads for retry in subsequent scan cycles
 
 #### Usage
 ```python
@@ -276,17 +282,4 @@ All services and utilities are designed to work with asyncio for efficient resou
 The common library is the foundation for the following applications:
 - **app_counter**: Uses common logger and provides token management services
 - **app_feedbackform**: Uses Azure OpenAI Service, Service Bus Handler, and retry logic
-
-## Configuration
-The common library uses the following environment variables:
-
-- `AZURE_OPENAI_API_VERSION`: API version for Azure OpenAI
-- `AZURE_OPENAI_ENDPOINT`: Endpoint URL for Azure OpenAI
-- `AZURE_OPENAI_DEPLOYMENT_NAME`: Default deployment name for OpenAI models
-- `LOG_LEVEL`: Logging level (default: INFO)
-
-## Security
-- Uses Azure Identity for secure access to Azure resources
-- No hardcoded credentials or secrets
-- Supports Managed Identity in production environments
-- Falls back to other credential types (environment, CLI) for development 
+- **app_reasoner**: Uses Azure OpenAI Service, Service Bus Handler, and retry logic
