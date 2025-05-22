@@ -230,9 +230,13 @@ class AsyncBlobStorageUploader:
                     
             except Exception as e:
                 if attempt < self.max_retries - 1:
-                    delay = self.retry_delay * (2 ** attempt)  # Exponential backoff
+                    # Add a fixed 1-second delay before calculating the exponential backoff
+                    await asyncio.sleep(1.0)
+                    
+                    # Calculate exponential backoff for additional delay
+                    delay = self.retry_delay * (2 ** attempt)
                     logger.warning(f"Error uploading {file_path} (attempt {attempt+1}/{self.max_retries}): {str(e)}")
-                    logger.info(f"Retrying in {delay:.1f} seconds...")
+                    logger.info(f"Retrying in {delay:.1f} seconds after initial 1-second delay...")
                     await asyncio.sleep(delay)
                 else:
                     logger.error(f"Error uploading {file_path} after {self.max_retries} attempts: {str(e)}")

@@ -102,17 +102,21 @@ class LogMonitorService:
         
         while self._running:
             try:
-                # Scan for rotated logs
-                await self._scan_for_rotated_logs()
+                try:
+                    # Scan for rotated logs
+                    await self._scan_for_rotated_logs()
+                except Exception as e:
+                    # Log the error but continue the loop
+                    logger.error(f"Error in scan for rotated logs: {str(e)}")
                 
                 # Wait for the scan interval
                 await asyncio.sleep(self.scan_interval)
                 
             except asyncio.CancelledError:
                 logger.info("Log monitor task cancelled")
-                break
+                break  # This is the only place where we break out of the loop
             except Exception as e:
-                logger.error(f"Error in log monitor loop: {str(e)}")
+                logger.error(f"Unexpected error in monitor loop: {str(e)}")
                 # Add short sleep to avoid tight loop in case of recurring errors
                 await asyncio.sleep(5)
             
