@@ -4,6 +4,7 @@ Log file monitoring service that detects rotated log files and uploads them to A
 import os
 import asyncio
 import time
+import random
 from pathlib import Path
 from typing import Optional, Set, Dict, List, Tuple
 from datetime import datetime
@@ -89,8 +90,15 @@ class LogMonitorService:
         # Create logs directory if it doesn't exist
         Path(self.logs_dir).mkdir(parents=True, exist_ok=True)
         
-        # Start the monitoring task
+        # Start the monitoring task with random delay to spread workers
         self._running = True
+        
+        # Random startup delay (Windows compatible)
+        startup_delay = random.randint(10, 120)  # 10-120 seconds
+        process_id = os.getpid()
+        logger.info(f"Process {process_id} will start log monitoring in {startup_delay} seconds")
+        await asyncio.sleep(startup_delay)
+        
         self._monitor_task = asyncio.create_task(self._monitor_loop())
         
         logger.info(f"Log monitor service initialized - scanning {self.logs_dir} every {self.scan_interval}s")

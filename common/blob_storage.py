@@ -3,6 +3,7 @@ Asynchronous Azure Blob Storage client for uploading files.
 """
 import os
 import asyncio
+import random
 from typing import Optional, Set
 from datetime import datetime, timedelta
 from azure.storage.blob.aio import BlobServiceClient
@@ -21,8 +22,8 @@ class AsyncBlobStorageUploader:
         account_url: str,
         container_name: str,
         retention_days: Optional[int] = 30,
-        max_retries: int = 3,
-        retry_delay: float = 2.0
+        max_retries: int = 16,
+        retry_delay: int = random.randint(2, 100)
     ):
         """
         Initialize the Azure Blob Storage uploader.
