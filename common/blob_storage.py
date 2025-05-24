@@ -5,7 +5,7 @@ import os
 import asyncio
 import random
 from typing import Optional, Set
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from azure.storage.blob.aio import BlobServiceClient
 from azure.identity.aio import DefaultAzureCredential
 from common.logger import get_logger
@@ -209,7 +209,7 @@ class AsyncBlobStorageUploader:
                 # Set expiration time if retention_days is specified
                 headers = {}
                 if self.retention_days:
-                    expiry = datetime.utcnow() + timedelta(days=self.retention_days)
+                    expiry = datetime.now(timezone.utc) + timedelta(days=self.retention_days)
                     headers["x-ms-expiry-time"] = expiry.strftime("%a, %d %b %Y %H:%M:%S GMT")
                 
                 # Upload the file - use a synchronous open, then upload the data
