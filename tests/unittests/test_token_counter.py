@@ -3,7 +3,7 @@ import asyncio
 import time
 from unittest.mock import patch, MagicMock
 
-from apps.app_counter.services.token_counter import TokenCounter
+from app_counter.services.token_counter import TokenCounter
 
 class TestTokenCounter:
     """Test suite for the TokenCounter class"""
