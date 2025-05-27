@@ -2,24 +2,21 @@
 Azure OpenAI Service for making API calls to Azure-hosted OpenAI models.
 """
 import os
-import json
-import asyncio
 import tiktoken
-from pathlib import Path
-from typing import Dict, List, Any, Optional, Union, Callable
+from typing import Dict, List, Any, Optional, Union
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from openai import AzureOpenAI
 from dotenv import load_dotenv
-from common.logger import get_logger
-from common.retry_helpers import with_token_limit_retry
+from common_new.logger import get_logger
+from common_new.retry_helpers import with_token_limit_retry
 
-# Import TokenClient from app_counter
-from common.token_client import TokenClient
+from common_new.token_client import TokenClient
+load_dotenv()
 
 logger = get_logger("common")
 
-load_dotenv()
+COUNTER_BASE_URL = os.getenv("COUNTER_APP_BASE_URL")
 
 class AzureOpenAIService:
     """
@@ -28,7 +25,7 @@ class AzureOpenAIService:
     Includes token usage tracking to prevent rate limit issues.
     """
     
-    def __init__(self, model: Optional[str] = None, app_id: str = "default_app", token_counter_url: str = "http://localhost:8001", token_counter_resource_uri: Optional[str] = None):
+    def __init__(self, model: Optional[str] = None, app_id: str = "default_app", token_counter_url: str = COUNTER_BASE_URL):
         """
         Initialize the Azure OpenAI service with credentials from environment variables.
         
@@ -38,22 +35,19 @@ class AzureOpenAIService:
             token_counter_url: URL of the token counter service.
             token_counter_resource_uri: Resource URI for authenticating with token counter service.
         """
-        self.api_version = os.getenv("AZURE_OPENAI_API_VERSION")
-        self.azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        self.default_model = model or os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")
+        self.api_version = os.getenv("APP_OPENAI_API_VERSION")
+        self.azure_endpoint = os.getenv("APP_OPENAI_API_BASE")
+        self.default_model = model or os.getenv("APP_OPENAI_ENGIBE")
         self.app_id = app_id
-        
-        # Initialize token client with authentication if resource URI is provided
-        use_auth = token_counter_resource_uri is not None
-        self.token_client = TokenClient(
-            app_id=app_id, 
-            base_url=token_counter_url,
-            resource_uri=token_counter_resource_uri,
-            use_auth=use_auth
+        self.token_provider = get_bearer_token_provider(
+            DefaultAzureCredential(),
+            "https://cognitiveservices.azure.com/.default"
         )
         
+        self.token_client = TokenClient(app_id=app_id, base_url=token_counter_url)
+        
         if not self.api_version or not self.azure_endpoint:
-            raise ValueError("AZURE_OPENAI_API_VERSION and AZURE_OPENAI_ENDPOINT must be set in .env file or exported as environment variables")
+            raise ValueError("APP_OPENAI_API_VERSION and APP_OPENAI_API_BASE must be set in .env file or exported as environment variables")
         
         logger.info(f"Initializing Azure OpenAI service with endpoint: {self.azure_endpoint}")
         self.client = self._initialize_client()
@@ -69,10 +63,7 @@ class AzureOpenAIService:
         return AzureOpenAI(
             api_version=self.api_version,
             azure_endpoint=self.azure_endpoint,
-            azure_ad_token_provider=get_bearer_token_provider(
-                DefaultAzureCredential(),
-                scopes=[f"{self.azure_endpoint}/.default"]
-            )
+            azure_ad_token_provider=self.token_provider
         )
     
     def _get_encoding_for_model(self, model: str) -> Any:

@@ -1,11 +1,11 @@
 import aiohttp
 from typing import Dict, Any, Optional, Tuple
-from common.logger import get_logger
+from common_new.logger import get_logger
 import time
 from azure.identity import DefaultAzureCredential
 from azure.core.exceptions import ClientAuthenticationError
 
-logger = get_logger("token_client")
+logger = get_logger("common")
 
 class TokenClient:
     """

@@ -4,9 +4,9 @@ Retry helper utilities for rate-limited API calls.
 import asyncio
 import functools
 from typing import Any, Callable, TypeVar, Optional, Dict
-from common.logger import get_logger
+from common_new.logger import get_logger
 
-logger = get_logger("retry_helpers")
+logger = get_logger("common")
 
 T = TypeVar('T')
 

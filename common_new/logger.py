@@ -3,13 +3,20 @@ import os
 import sys
 from logging.handlers import TimedRotatingFileHandler
 from typing import Optional
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+logging.getLogger("azure").setLevel(logging.WARNING)
 
 def get_app_name() -> str:
     """
     Get the application name from environment variable.
     Returns the APP_NAME if set, otherwise returns 'unknown_app'.
     """
-    return os.getenv('APP_NAME', 'unknown_app')
+    return os.getenv('APP_NAME_FOR_LOGGER', 'unknown_app')
+
 
 def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
     """
