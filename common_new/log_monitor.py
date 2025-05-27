@@ -98,8 +98,7 @@ class LogMonitorService:
                 # Create the uploader
                 self.uploader = AsyncBlobStorageUploader(
                     account_url=self.account_url,
-                    container_name=self.container_name,
-                    retention_days=self.retention_days
+                    container_name=self.container_name
                 )
                 
                 # Initialize the uploader

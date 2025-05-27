@@ -4,7 +4,6 @@ Asynchronous Azure Blob Storage client for uploading files.
 import os
 import asyncio
 from typing import Optional, Set
-from datetime import datetime, timedelta, timezone
 from azure.storage.blob.aio import BlobServiceClient
 from azure.identity.aio import DefaultAzureCredential
 from common_new.logger import get_logger
@@ -20,7 +19,6 @@ class AsyncBlobStorageUploader:
         self,
         account_url: str,
         container_name: str,
-        retention_days: Optional[int] = 30,
         max_retries: int = 16,
         retry_delay: float = 2.0
     ):
@@ -30,13 +28,11 @@ class AsyncBlobStorageUploader:
         Args:
             account_url: Azure Storage account URL (e.g., https://accountname.blob.core.windows.net)
             container_name: Name of the container to store uploaded files
-            retention_days: Optional number of days to retain files before expiry (30 by default)
             max_retries: Maximum number of retry attempts for failed uploads
             retry_delay: Base delay between retries in seconds (uses exponential backoff)
         """
         self.account_url = account_url
         self.container_name = container_name
-        self.retention_days = retention_days
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self._initialized = False
@@ -205,12 +201,6 @@ class AsyncBlobStorageUploader:
                 # Get the blob client
                 blob_client = container_client.get_blob_client(blob_name)
                 
-                # Set expiration time if retention_days is specified
-                headers = {}
-                if self.retention_days:
-                    expiry = datetime.now(timezone.utc) + timedelta(days=self.retention_days)
-                    headers["x-ms-expiry-time"] = expiry.strftime("%a, %d %b %Y %H:%M:%S GMT")
-                
                 # Upload the file - use a synchronous open, then upload the data
                 file_size = os.path.getsize(file_path)
                 logger.info(f"Uploading {file_path} ({file_size} bytes) to blob storage as {blob_name}")
@@ -222,8 +212,7 @@ class AsyncBlobStorageUploader:
                 # Upload the data from memory
                 await blob_client.upload_blob(
                     data, 
-                    overwrite=True,
-                    headers=headers
+                    overwrite=True
                 )
                 
                 return True

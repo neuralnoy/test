@@ -184,7 +184,7 @@ Asynchronous client for uploading files to Azure Blob Storage.
 - **Authentication**: Uses Azure Identity with `DefaultAzureCredential`
 
 #### Methods
-- `__init__(account_url, container_name, retention_days)`: Initializes the uploader
+- `__init__(account_url, container_name, max_retries, retry_delay)`: Initializes the uploader
 - `initialize()`: Sets up connections and starts background worker
 - `upload_file(file_path, blob_name, app_name)`: Queues a file for background upload
 - `shutdown()`: Gracefully shuts down the uploader waiting for pending uploads
@@ -192,9 +192,8 @@ Asynchronous client for uploading files to Azure Blob Storage.
 #### Features
 - Background processing of uploads to avoid blocking
 - Automatic container creation if needed
-- File expiration settings with retention days
 - Proper resource management with async context managers
-- **Retry Logic**: Implements configurable exponential backoff for failed uploads (default: 3 retries)
+- **Retry Logic**: Implements configurable exponential backoff for failed uploads (default: 16 retries)
 - **Two-stage Delay**: Uses a fixed 1-second initial delay followed by increasing exponential backoff
 - **Resource Management**: Creates fresh connections for each upload attempt and properly closes them
 - **Worker Recovery**: Upload worker continues processing queue even if individual uploads fail
@@ -207,7 +206,7 @@ from common.blob_storage import AsyncBlobStorageUploader
 uploader = AsyncBlobStorageUploader(
     account_url="https://myaccount.blob.core.windows.net",
     container_name="my-container",
-    max_retries=3,
+    max_retries=16,
     retry_delay=2.0
 )
 await uploader.initialize()
