@@ -5,9 +5,9 @@ import uuid
 from unittest.mock import patch, AsyncMock, MagicMock
 from dataclasses import dataclass
 
-from apps.app_feedbackform.main import app
-from apps.app_feedbackform.services.data_processor import process_data
-from common.service_bus import AsyncServiceBusHandler
+from app_feedbackform.main import app
+from app_feedbackform.services.data_processor import process_data
+from common_new.service_bus import AsyncServiceBusHandler
 
 @dataclass
 class MockMessage:
@@ -29,7 +29,7 @@ class TestFeedbackForm:
     @pytest.fixture
     def mock_service_bus(self):
         """Mock the service bus handler"""
-        with patch('apps.app_feedbackform.main.AsyncServiceBusHandler') as mock_sb:
+        with patch('app_feedbackform.main.AsyncServiceBusHandler') as mock_sb:
             # Configure mock
             mock_instance = MagicMock()
             mock_instance.listen = AsyncMock()
@@ -86,7 +86,7 @@ class TestFeedbackForm:
         assert data["service_bus_running"] is False
 
     @pytest.mark.asyncio
-    @patch('apps.app_feedbackform.services.prompts.process_feedback')
+    @patch('app_feedbackform.services.prompts.process_feedback')
     async def test_process_data_integration(self, mock_process_feedback):
         """Test the data processor integration with mocked Azure OpenAI"""
         # Mock the Azure OpenAI call
@@ -120,7 +120,7 @@ class TestFeedbackForm:
         assert result["message"] == "SUCCESS"
 
     @pytest.mark.asyncio
-    @patch('apps.app_feedbackform.services.prompts.process_feedback')
+    @patch('app_feedbackform.services.prompts.process_feedback')
     async def test_service_bus_message_processing(self, mock_process_feedback):
         """Test processing a message via the service bus handler"""
         # Mock the Azure OpenAI call
@@ -170,7 +170,7 @@ class TestFeedbackForm:
         assert sent_data["message"] == "SUCCESS"
 
     @pytest.mark.asyncio
-    @patch('apps.app_feedbackform.services.prompts.process_feedback')
+    @patch('app_feedbackform.services.prompts.process_feedback')
     async def test_service_bus_error_handling(self, mock_process_feedback):
         """Test error handling in the service bus handler"""
         # Mock the Azure OpenAI call to fail
@@ -218,7 +218,7 @@ class TestFeedbackForm:
         mock_service_bus.stop.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch('apps.app_feedbackform.services.prompts.process_feedback')
+    @patch('app_feedbackform.services.prompts.process_feedback')
     async def test_invalid_message_handling(self, mock_process_feedback):
         """Test handling of invalid messages"""
         # Create a mock service bus handler

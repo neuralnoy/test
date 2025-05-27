@@ -6,7 +6,7 @@ import os
 import uuid
 from datetime import datetime
 
-from apps.app_counter.main import app
+from app_counter.main import app
 
 class TestCounterAPI:
     """Integration tests for the Token Counter API"""
