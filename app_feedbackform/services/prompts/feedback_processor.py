@@ -3,12 +3,12 @@ Feedback processor service that uses Azure OpenAI to process feedback text.
 """
 import json
 from typing import Dict, Any, Tuple
-from common.azure_openai_service import AzureOpenAIService
-from common.logger import get_logger
+from common_new.azure_openai_service import AzureOpenAIService
+from common_new.logger import get_logger
 from app_feedbackform.services.prompts.hashtag_mapping import get_hashtag_mapping
 from app_feedbackform.services.prompts.prompts import get_system_prompt, get_user_prompt
 
-logger = get_logger("feedback_processor")
+logger = get_logger("prompts")
 
 # Initialize the Azure OpenAI service
 ai_service = AzureOpenAIService(app_id="app_feedbackform")
@@ -63,7 +63,7 @@ async def process_feedback(text: str, max_retries: int = 3) -> Tuple[bool, Dict[
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=USER_PROMPT,
                 variables={"text": text, "hashtag_options": hashtag_options},
-                temperature=0.3  # Lower temperature for more deterministic results
+                temperature=0.0  # Lower temperature for more deterministic results
             )
             
             # Parse the JSON response

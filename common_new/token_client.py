@@ -1,3 +1,4 @@
+import os
 import aiohttp
 from typing import Dict, Any, Optional, Tuple
 from common_new.logger import get_logger
@@ -6,9 +7,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BASE_URL = os.getenv("COUNTER_APP_BASE_URL")
-
 logger = get_logger("common")
+
+BASE_URL = str(os.getenv("COUNTER_APP_BASE_URL"))
 
 class TokenClient:
     """
