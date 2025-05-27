@@ -22,7 +22,7 @@ class AsyncBlobStorageUploader:
         container_name: str,
         retention_days: Optional[int] = 30,
         max_retries: int = 16,
-        retry_delay: int = float = 2.0
+        retry_delay: float = 2.0
     ):
         """
         Initialize the Azure Blob Storage uploader.
