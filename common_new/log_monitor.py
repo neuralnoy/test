@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Optional, Set, List, Tuple
 from datetime import datetime
 
-from common.logger import get_logger
-from common.blob_storage import AsyncBlobStorageUploader
+from common_new.logger import get_logger
+from common_new.blob_storage import AsyncBlobStorageUploader
 
 logger = get_logger("log_monitor")
 

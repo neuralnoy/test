@@ -2,8 +2,8 @@ import pytest
 import json
 from unittest.mock import patch, MagicMock, AsyncMock, ANY
 
-from common.azure_openai_service import AzureOpenAIService
-from common.retry_helpers import RetryConfig
+from common_new.azure_openai_service import AzureOpenAIService
+from common_new.retry_helpers import RetryConfig
 
 class TestAzureOpenAIService:
     """Test suite for the AzureOpenAIService class"""

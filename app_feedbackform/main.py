@@ -2,8 +2,8 @@ import os
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from common.service_bus import AsyncServiceBusHandler
-from common.logger import get_logger
+from common_new.service_bus import AsyncServiceBusHandler
+from common_new.logger import get_logger
 from app_feedbackform.services.data_processor import process_data
 
 logger = get_logger("feedback_form_app")
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
     
     # Only initialize if blob storage is configured (either by URL or account name)
     if account_url or account_name:
-        from common.log_monitor import LogMonitorService
+        from common_new.log_monitor import LogMonitorService
         
         storage_endpoint = account_url or f"https://{account_name}.blob.core.windows.net"
         logger.info(f"Initializing log monitor service to upload to {storage_endpoint}/{container_name}")

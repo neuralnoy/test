@@ -2,7 +2,7 @@ import asyncio
 import time
 import uuid
 from typing import Dict, Any
-from common.logger import get_logger
+from common_new.logger import get_logger
 
 logger = get_logger("rate_counter")
 

@@ -3,8 +3,10 @@ Call processor service that uses Azure OpenAI to process call transcripts.
 """
 import json
 from typing import Dict, Any, Tuple
-from common.azure_openai_service import AzureOpenAIService
-from common.logger import get_logger
+from pydantic import ValidationError
+from common_new.azure_openai_service import AzureOpenAIService
+from common_new.logger import get_logger
+from app_reasoner.models.schemas import CallProcessingResponse
 from app_reasoner.services.prompts.reason_mapping import get_reason_mapping
 from app_reasoner.services.prompts.prompts import get_system_prompt, get_user_prompt
 
@@ -37,6 +39,59 @@ def _format_reason_options() -> str:
         options.append(option)
     
     return "\n".join(options)
+
+async def process_call_structured(text: str, max_retries: int = 3) -> Tuple[bool, CallProcessingResponse]:
+    """
+    Process call transcript using Instructor for structured, validated outputs.
+    
+    Args:
+        text: The call transcript to process
+        max_retries: Maximum number of retries on failure
+        
+    Returns:
+        Tuple[bool, CallProcessingResponse]: (success flag, validated response)
+    """
+    reason_options = _format_reason_options()
+    
+    try:
+        logger.info("Processing call transcript with structured validation")
+        
+        # Use the enhanced service for structured completion
+        response = await ai_service.structured_prompt(
+            response_model=CallProcessingResponse,
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=USER_PROMPT,
+            variables={"text": text, "reason_options": reason_options},
+            temperature=0.3,
+            max_retries=max_retries
+        )
+        
+        logger.info(f"PII or CID detected: {response.contains_pii_or_cid}")
+        logger.info("Successfully processed call transcript with validation")
+        
+        return True, response
+        
+    except ValidationError as e:
+        logger.error(f"Validation error in AI response: {str(e)}")
+        # Create a fallback response
+        fallback_response = CallProcessingResponse(
+            summary="Failed to process call transcript due to validation errors",
+            reason="#error",
+            ai_reason="#validation_failed",
+            contains_pii_or_cid="No"
+        )
+        return False, fallback_response
+        
+    except Exception as e:
+        logger.error(f"Error processing call transcript: {str(e)}")
+        # Create a fallback response
+        fallback_response = CallProcessingResponse(
+            summary="Failed to process call transcript after multiple attempts",
+            reason="#error", 
+            ai_reason="#processing_failed",
+            contains_pii_or_cid="No"
+        )
+        return False, fallback_response
 
 async def process_call(text: str, max_retries: int = 3) -> Tuple[bool, Dict[str, Any]]:
     """

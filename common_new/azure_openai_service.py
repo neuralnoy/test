@@ -3,11 +3,13 @@ Azure OpenAI Service for making API calls to Azure-hosted OpenAI models.
 """
 import os
 import tiktoken
-from typing import Dict, List, Any, Optional, Union
+import instructor
+from typing import Dict, List, Any, Optional, Union, TypeVar, Type
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from openai import AzureOpenAI
 from dotenv import load_dotenv
+from pydantic import BaseModel, ValidationError
 from common_new.logger import get_logger
 from common_new.retry_helpers import with_token_limit_retry
 
@@ -17,6 +19,9 @@ load_dotenv()
 logger = get_logger("common")
 
 COUNTER_BASE_URL = os.getenv("COUNTER_APP_BASE_URL")
+
+# Type variable for Pydantic models
+T = TypeVar('T', bound=BaseModel)
 
 class AzureOpenAIService:
     """
@@ -51,6 +56,9 @@ class AzureOpenAIService:
         
         logger.info(f"Initializing Azure OpenAI service with endpoint: {self.azure_endpoint}")
         self.client = self._initialize_client()
+        
+        # Initialize instructor client for structured outputs
+        self.instructor_client = instructor.from_openai(self.client)
     
     
     def _initialize_client(self) -> AzureOpenAI:
@@ -327,3 +335,122 @@ class AzureOpenAIService:
         except Exception as e:
             logger.error(f"Error sending prompt: {str(e)}")
             raise 
+    
+    async def structured_completion(
+        self,
+        response_model: Type[T],
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        max_tokens: Optional[int] = None,
+        max_retries: int = 3,
+        **kwargs
+    ) -> T:
+        """
+        Generate a structured completion using Instructor for Pydantic model validation.
+        
+        Args:
+            response_model: Pydantic model class for response validation
+            messages: List of messages for the conversation
+            model: Model to use (defaults to self.default_model)
+            temperature: Temperature for generation (defaults to 0.0 for deterministic outputs)
+            max_tokens: Maximum tokens to generate
+            max_retries: Maximum retries for validation failures
+            **kwargs: Additional parameters for the completion
+            
+        Returns:
+            T: Validated Pydantic model instance
+            
+        Raises:
+            ValidationError: If response doesn't match the schema after retries
+            ValueError: If token limit would be exceeded
+        """
+        model = model or self.default_model
+        
+        # Estimate token usage (including schema overhead for function calling)
+        estimated_tokens = self._estimate_token_count(messages, model, max_tokens)
+        # Add extra tokens for function calling overhead
+        estimated_tokens += 500
+        
+        # Check token availability
+        allowed, request_id, error_message = await self.token_client.lock_tokens(estimated_tokens)
+        
+        if not allowed:
+            logger.warning(f"Structured completion request denied: {error_message}")
+            raise ValueError(error_message)
+        
+        try:
+            logger.debug(f"Sending structured completion request to model: {model}")
+            
+            # Use instructor for structured completion
+            response = await self.instructor_client.chat.completions.create(
+                model=model,
+                response_model=response_model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                max_retries=max_retries,
+                **kwargs
+            )
+            
+            logger.debug("Successfully received and validated structured response")
+            return response
+            
+        except ValidationError as e:
+            logger.error(f"Validation error in structured completion: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Error in structured completion: {str(e)}")
+            raise
+        finally:
+            # Always release tokens
+            await self.token_client.release_tokens(request_id)
+    
+    async def structured_prompt(
+        self,
+        response_model: Type[T],
+        system_prompt: str,
+        user_prompt: str,
+        variables: Dict[str, Any] = None,
+        examples: List[Dict[str, str]] = None,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        max_tokens: Optional[int] = None,
+        max_retries: int = 3,
+        **kwargs
+    ) -> T:
+        """
+        Send a structured prompt and get a validated Pydantic model response.
+        
+        Args:
+            response_model: Pydantic model class for response validation
+            system_prompt: System prompt
+            user_prompt: User prompt template
+            variables: Variables for prompt formatting
+            examples: Example messages
+            model: Model to use
+            temperature: Temperature for generation (defaults to 0.0 for deterministic outputs)
+            max_tokens: Maximum tokens
+            max_retries: Maximum retries for validation
+            **kwargs: Additional parameters
+            
+        Returns:
+            T: Validated Pydantic model instance
+        """
+        # Format the prompt using existing method
+        messages = self.format_prompt(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            variables=variables,
+            examples=examples
+        )
+        
+        return await self.structured_completion(
+            response_model=response_model,
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_retries=max_retries,
+            **kwargs
+        ) 

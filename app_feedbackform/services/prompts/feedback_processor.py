@@ -3,8 +3,10 @@ Feedback processor service that uses Azure OpenAI to process feedback text.
 """
 import json
 from typing import Dict, Any, Tuple
+from pydantic import ValidationError
 from common_new.azure_openai_service import AzureOpenAIService
 from common_new.logger import get_logger
+from app_feedbackform.models.schemas import FeedbackProcessingResponse
 from app_feedbackform.services.prompts.hashtag_mapping import get_hashtag_mapping
 from app_feedbackform.services.prompts.prompts import get_system_prompt, get_user_prompt
 
@@ -37,6 +39,59 @@ def _format_hashtag_options() -> str:
         options.append(option)
     
     return "\n".join(options)
+
+async def process_feedback_structured(text: str, max_retries: int = 3) -> Tuple[bool, FeedbackProcessingResponse]:
+    """
+    Process feedback using Instructor for structured, validated outputs.
+    
+    Args:
+        text: The feedback text to process
+        max_retries: Maximum number of retries on failure
+        
+    Returns:
+        Tuple[bool, FeedbackProcessingResponse]: (success flag, validated response)
+    """
+    hashtag_options = _format_hashtag_options()
+    
+    try:
+        logger.info("Processing feedback with structured validation")
+        
+        # Use the enhanced service for structured completion
+        response = await ai_service.structured_prompt(
+            response_model=FeedbackProcessingResponse,
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=USER_PROMPT,
+            variables={"text": text, "hashtag_options": hashtag_options},
+            temperature=0.0,
+            max_retries=max_retries
+        )
+        
+        logger.info(f"PII or CID detected: {response.contains_pii_or_cid}")
+        logger.info("Successfully processed feedback with validation")
+        
+        return True, response
+        
+    except ValidationError as e:
+        logger.error(f"Validation error in AI response: {str(e)}")
+        # Create a fallback response
+        fallback_response = FeedbackProcessingResponse(
+            summary="Failed to process feedback due to validation errors",
+            hashtag="#error",
+            ai_hashtag="#validation_failed",
+            contains_pii_or_cid="No"
+        )
+        return False, fallback_response
+        
+    except Exception as e:
+        logger.error(f"Error processing feedback: {str(e)}")
+        # Create a fallback response
+        fallback_response = FeedbackProcessingResponse(
+            summary="Failed to process feedback after multiple attempts",
+            hashtag="#error", 
+            ai_hashtag="#processing_failed",
+            contains_pii_or_cid="No"
+        )
+        return False, fallback_response
 
 async def process_feedback(text: str, max_retries: int = 3) -> Tuple[bool, Dict[str, Any]]:
     """

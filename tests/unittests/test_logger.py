@@ -5,7 +5,7 @@ import sys
 import re
 from unittest.mock import patch, MagicMock
 
-from common.logger import (
+from common_new.logger import (
     get_logger,
     FixedWidthColoredFormatter,
     calculate_field_widths,
