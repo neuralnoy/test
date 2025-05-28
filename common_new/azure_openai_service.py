@@ -393,18 +393,28 @@ class AzureOpenAIService:
                 **kwargs
             )
             
+            # Report actual token usage if available
+            # Instructor responses have access to the raw OpenAI response via _raw_response
+            if hasattr(response, '_raw_response') and hasattr(response._raw_response, 'usage'):
+                await self.token_client.report_usage(
+                    request_id=request_id,
+                    prompt_tokens=response._raw_response.usage.prompt_tokens,
+                    completion_tokens=response._raw_response.usage.completion_tokens
+                )
+            
             logger.debug("Successfully received and validated structured response")
             return response
             
         except ValidationError as e:
+            # Release tokens if validation fails
+            await self.token_client.release_tokens(request_id)
             logger.error(f"Validation error in structured completion: {str(e)}")
             raise
         except Exception as e:
+            # Release tokens if API call fails
+            await self.token_client.release_tokens(request_id)
             logger.error(f"Error in structured completion: {str(e)}")
             raise
-        finally:
-            # Always release tokens
-            await self.token_client.release_tokens(request_id)
     
     async def structured_prompt(
         self,
@@ -421,6 +431,7 @@ class AzureOpenAIService:
     ) -> T:
         """
         Send a structured prompt and get a validated Pydantic model response.
+        Includes retry logic for token rate limit errors.
         
         Args:
             response_model: Pydantic model class for response validation
@@ -437,20 +448,29 @@ class AzureOpenAIService:
         Returns:
             T: Validated Pydantic model instance
         """
-        # Format the prompt using existing method
-        messages = self.format_prompt(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            variables=variables,
-            examples=examples
-        )
+        # Create a helper function for retry logic
+        async def _do_structured_prompt():
+            # Format the prompt using existing method
+            messages = self.format_prompt(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                variables=variables,
+                examples=examples
+            )
+            
+            return await self.structured_completion(
+                response_model=response_model,
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                max_retries=max_retries,
+                **kwargs
+            )
         
-        return await self.structured_completion(
-            response_model=response_model,
-            messages=messages,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            max_retries=max_retries,
-            **kwargs
-        ) 
+        # Use retry helper for token limit handling
+        try:
+            return await with_token_limit_retry(_do_structured_prompt, self.token_client, max_retries=3)
+        except Exception as e:
+            logger.error(f"Error in structured prompt: {str(e)}")
+            raise 
