@@ -348,6 +348,7 @@ class AzureOpenAIService:
     ) -> T:
         """
         Generate a structured completion using Instructor for Pydantic model validation.
+        Includes retry logic for token rate limit errors.
         
         Args:
             response_model: Pydantic model class for response validation
@@ -367,44 +368,53 @@ class AzureOpenAIService:
         """
         model = model or self.default_model
         
-        # Estimate token usage (including schema overhead for function calling)
-        estimated_tokens = self._estimate_token_count(messages, model, max_tokens)
-        # Add extra tokens for function calling overhead
-        estimated_tokens += 500
+        # Create a helper function that doesn't use self as first arg to work with our retry helper
+        async def _do_structured_completion():
+            # Estimate token usage (including schema overhead for function calling)
+            estimated_tokens = self._estimate_token_count(messages, model, max_tokens)
+            # Add extra tokens for function calling overhead
+            estimated_tokens += 500
+            
+            # Check token availability
+            allowed, request_id, error_message = await self.token_client.lock_tokens(estimated_tokens)
+            
+            if not allowed:
+                logger.warning(f"Structured completion request denied: {error_message}")
+                raise ValueError(error_message)
+            
+            try:
+                logger.debug(f"Sending structured completion request to model: {model}")
+                
+                # Use instructor for structured completion
+                response = self.instructor_client.chat.completions.create(
+                    model=model,
+                    response_model=response_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    max_retries=max_retries,
+                    **kwargs
+                )
+                
+                logger.debug("Successfully received and validated structured response")
+                return response
+                
+            except ValidationError as e:
+                logger.error(f"Validation error in structured completion: {str(e)}")
+                raise
+            except Exception as e:
+                logger.error(f"Error in structured completion: {str(e)}")
+                raise
+            finally:
+                # Always release tokens
+                await self.token_client.release_tokens(request_id)
         
-        # Check token availability
-        allowed, request_id, error_message = await self.token_client.lock_tokens(estimated_tokens)
-        
-        if not allowed:
-            logger.warning(f"Structured completion request denied: {error_message}")
-            raise ValueError(error_message)
-        
+        # Use our retry helper that will automatically handle waiting for rate limit windows
         try:
-            logger.debug(f"Sending structured completion request to model: {model}")
-            
-            # Use instructor for structured completion
-            response = self.instructor_client.chat.completions.create(
-                model=model,
-                response_model=response_model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                max_retries=max_retries,
-                **kwargs
-            )
-            
-            logger.debug("Successfully received and validated structured response")
-            return response
-            
-        except ValidationError as e:
-            logger.error(f"Validation error in structured completion: {str(e)}")
-            raise
+            return await with_token_limit_retry(_do_structured_completion, self.token_client, max_retries=3)
         except Exception as e:
             logger.error(f"Error in structured completion: {str(e)}")
             raise
-        finally:
-            # Always release tokens
-            await self.token_client.release_tokens(request_id)
     
     async def structured_prompt(
         self,
@@ -421,6 +431,7 @@ class AzureOpenAIService:
     ) -> T:
         """
         Send a structured prompt and get a validated Pydantic model response.
+        Includes retry logic for token rate limit errors.
         
         Args:
             response_model: Pydantic model class for response validation
