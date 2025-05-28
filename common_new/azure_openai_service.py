@@ -42,7 +42,7 @@ class AzureOpenAIService:
         """
         self.api_version = os.getenv("APP_OPENAI_API_VERSION")
         self.azure_endpoint = os.getenv("APP_OPENAI_API_BASE")
-        self.default_model = model or os.getenv("APP_OPENAI_ENGIBE")
+        self.default_model = model or os.getenv("APP_OPENAI_ENGINE")
         self.app_id = app_id
         self.token_provider = get_bearer_token_provider(
             DefaultAzureCredential(),
