@@ -4,7 +4,7 @@ import asyncio
 from typing import Dict, Any, Optional
 from common_new.logger import get_logger
 from app_feedbackform.models.schemas import InputFeedbackForm, OutputFeedbackForm, InternalFeedbackResult
-from app_feedbackform.services.prompts.feedback_processor import process_feedback
+from app_feedbackform.services.prompts.feedback_processor import process_feedback, process_feedback_structured
 
 logger = get_logger("feedback_form_processor")
 
@@ -28,18 +28,18 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
         form_data = InputFeedbackForm(**data_dict)
         
         # Process the feedback text using Azure OpenAI
-        success, result = await process_feedback(form_data.text)
+        success, result = await process_feedback_structured(form_data.text)
         
         if success:
             # Create internal result with PII/CID detection information for logging
             internal_result = InternalFeedbackResult(
                 id=form_data.id,
                 taskId=form_data.taskId,
-                ai_hashtag=result["ai_hashtag"],
-                hashtag=result["hashtag"],
-                summary=result["summary"],
+                ai_hashtag=result.ai_hashtag,
+                hashtag=result.hashtag,
+                summary=result.summary,
                 message="SUCCESS",
-                contains_pii_or_cid=result["contains_pii_or_cid"]
+                contains_pii_or_cid=result.contains_pii_or_cid
             )
             
             # Log the PII/CID detection information
@@ -50,9 +50,9 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
             output_data = OutputFeedbackForm(
                 id=form_data.id,
                 taskId=form_data.taskId,
-                ai_hashtag=result["ai_hashtag"],
-                hashtag=result["hashtag"],
-                summary=result["summary"],
+                ai_hashtag=result.ai_hashtag,
+                hashtag=result.hashtag,
+                summary=result.summary,
                 message="SUCCESS"
             )
             
@@ -67,9 +67,9 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
             output_data = OutputFeedbackForm(
                 id=form_data.id,
                 taskId=form_data.taskId,
-                ai_hashtag=result["ai_hashtag"],
-                hashtag=result["hashtag"],
-                summary=result["summary"],
+                ai_hashtag=result.ai_hashtag,
+                hashtag=result.hashtag,
+                summary=result.summary,
                 message="failed"
             )
             
@@ -118,18 +118,3 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
         except:
             # If we can't even create a proper error response, return None
             return None
-
-# USAGE EXAMPLE: To use the new structured validation with Instructor/Pydantic:
-#
-# from app_feedbackform.services.prompts.feedback_processor import process_feedback_structured
-# 
-# # Replace the line:
-# # success, result = await process_feedback(form_data.text)
-# 
-# # With:
-# # success, structured_result = await process_feedback_structured(form_data.text)
-# 
-# # The structured_result will be a validated FeedbackProcessingResponse Pydantic model
-# # with automatic validation, better error handling, and type safety.
-# # You can access fields directly: structured_result.summary, structured_result.hashtag, etc.
-# # The response is guaranteed to match the expected schema or raise a ValidationError.

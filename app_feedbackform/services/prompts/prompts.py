@@ -23,15 +23,7 @@ CID includes but is not limited to:
 - Reference numbers
 - Case numbers
 
-Your output must be in valid JSON format with the following structure:
-{
-  "summary": "concise summary of the feedback with all PII removed",
-  "hashtag": "#predefinedHashtag",
-  "ai_hashtag": "#aiGeneratedHashtag",
-  "contains_pii_or_cid": "Yes" or "No"
-}
-
-For the predefined hashtag, you must select exactly one from this list:
+For the predefined hashtag, you must select exactly one from this list.
 """
 
 # User prompt templates

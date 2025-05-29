@@ -6,35 +6,35 @@ This is a temporary generic mapping and will be replaced with actual business lo
 HASHTAG_MAPPING = {
     "product": {
         "description": "Feedback related to product features or functionality",
-        "examples": ["The product is great", "I really like the new feature"]
+        "category": "A"
     },
     "service": {
         "description": "Feedback related to customer service",
-        "examples": ["Support was very helpful", "Quick response from the team"]
+        "category": "B"
     },
     "usability": {
         "description": "Feedback related to usability and user experience",
-        "examples": ["The interface is intuitive", "Hard to navigate the menu"]
+        "category": "C"
     },
     "performance": {
         "description": "Feedback related to system performance",
-        "examples": ["App is fast", "Website is slow to load"]
+        "category": "A"
     },
     "suggestion": {
         "description": "Suggestions for improvement",
-        "examples": ["Would be nice to have dark mode", "Please add export functionality"]
+        "category": "B"
     },
     "bug": {
         "description": "Reports of bugs or issues",
-        "examples": ["App crashes when I try to save", "Can't upload images"]
+        "category": "C"
     },
     "positive": {
         "description": "General positive feedback",
-        "examples": ["Love this app!", "Great experience"]
+        "category": "A"
     },
     "negative": {
         "description": "General negative feedback",
-        "examples": ["Disappointed with the service", "Not what I expected"]
+        "category": "B"
     }
 }
 

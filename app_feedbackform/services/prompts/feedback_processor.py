@@ -1,8 +1,7 @@
 """
 Feedback processor service that uses Azure OpenAI to process feedback text.
 """
-import json
-from typing import Dict, Any, Tuple
+from typing import Tuple
 from pydantic import ValidationError
 from common_new.azure_openai_service import AzureOpenAIService
 from common_new.logger import get_logger
@@ -52,105 +51,61 @@ async def process_feedback_structured(text: str, max_retries: int = 3) -> Tuple[
         Tuple[bool, FeedbackProcessingResponse]: (success flag, validated response)
     """
     hashtag_options = _format_hashtag_options()
-    
-    try:
-        logger.info("Processing feedback with structured validation")
-        
-        # Use the enhanced service for structured completion
-        response = await ai_service.structured_prompt(
-            response_model=FeedbackProcessingResponse,
-            system_prompt=SYSTEM_PROMPT,
-            user_prompt=USER_PROMPT,
-            variables={"text": text, "hashtag_options": hashtag_options},
-            temperature=0.0,
-            max_retries=max_retries
-        )
-        
-        logger.info(f"PII or CID detected: {response.contains_pii_or_cid}")
-        logger.info("Successfully processed feedback with validation")
-        
-        return True, response
-        
-    except ValidationError as e:
-        logger.error(f"Validation error in AI response: {str(e)}")
-        # Create a fallback response
-        fallback_response = FeedbackProcessingResponse(
-            summary="Failed to process feedback due to validation errors",
-            hashtag="#error",
-            ai_hashtag="#validation_failed",
-            contains_pii_or_cid="No"
-        )
-        return False, fallback_response
-        
-    except Exception as e:
-        logger.error(f"Error processing feedback: {str(e)}")
-        # Create a fallback response
-        fallback_response = FeedbackProcessingResponse(
-            summary="Failed to process feedback after multiple attempts",
-            hashtag="#error", 
-            ai_hashtag="#processing_failed",
-            contains_pii_or_cid="No"
-        )
-        return False, fallback_response
 
-async def process_feedback(text: str, max_retries: int = 3) -> Tuple[bool, Dict[str, Any]]:
-    """
-    Process feedback using OpenAI to summarize, categorize, and sanitize.
-    
-    Args:
-        text: The feedback text to process
-        max_retries: Maximum number of retries on failure
-        
-    Returns:
-        Tuple[bool, Dict[str, Any]]: (success flag, processed data)
-    """
-    # Format hashtag options for the prompt
-    hashtag_options = _format_hashtag_options()
-    
-    # Attempt processing with retries
     for attempt in range(max_retries):
         try:
-            logger.info(f"Processing feedback (attempt {attempt + 1}/{max_retries})")
+            logger.info("Processing feedback with structured validation")
             
-            # Send the prompt to the AI service
-            # The send_prompt method now handles token rate limit retries internally
-            response = await ai_service.send_prompt(
+            # Use the enhanced service for structured completion
+            response = await ai_service.structured_prompt(
+                response_model=FeedbackProcessingResponse,
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=USER_PROMPT,
                 variables={"text": text, "hashtag_options": hashtag_options},
-                temperature=0.0  # Lower temperature for more deterministic results
+                temperature=0.0
             )
             
-            # Parse the JSON response
-            result = json.loads(response)
+            logger.info(f"PII or CID detected: {response.contains_pii_or_cid}")
+            logger.info("Successfully processed feedback with validation")
             
-            # Validate required fields
-            required_fields = ["summary", "hashtag", "ai_hashtag", "contains_pii_or_cid"]
-            if all(field in result for field in required_fields):
-                # Log whether PII or CID was detected
-                logger.info(f"PII or CID detected: {result['contains_pii_or_cid']}")
-                logger.info("Successfully processed feedback")
-                return True, result
-            else:
-                missing_fields = [field for field in required_fields if field not in result]
-                logger.warning(f"Response missing required fields: {missing_fields}")
-                
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {str(e)}")
+            return True, response
+            
+        except ValidationError as e:
+            logger.error(f"Validation error in AI response: {str(e)}")
+            # Create a fallback response
+            fallback_response = FeedbackProcessingResponse(
+                summary="Failed to process feedback due to validation errors",
+                hashtag="#error",
+                ai_hashtag="#validation_failed",
+                category="failed",
+                contains_pii_or_cid="No"
+            )
+            return False, fallback_response
+            
         except Exception as e:
             logger.error(f"Error processing feedback: {str(e)}")
+            # Create a fallback response
+            fallback_response = FeedbackProcessingResponse(
+                summary="Failed to process feedback because of validation errors",
+                hashtag="#error", 
+                ai_hashtag="#processing_failed",
+                category="failed",
+                contains_pii_or_cid="No"
+            )
+            return False, fallback_response
         
-        # If not the final attempt, log and retry
         if attempt < max_retries - 1:
             logger.info(f"Retrying feedback processing (attempt {attempt + 2}/{max_retries})")
     
     # If all retries failed, return failure with error message
-    error_result = {
-        "summary": "Failed to process feedback after multiple attempts",
-        "hashtag": "#error",
-        "ai_hashtag": "#processing_failed",
-        "contains_pii_or_cid": "Unknown",
-        "error": "Processing failed after maximum retry attempts"
-    }
+    error_result = FeedbackProcessingResponse(
+        summary="Failed to process feedback after multiple attempts",
+        hashtag="#error",
+        ai_hashtag="#processing_failed",
+        category="failed",
+        contains_pii_or_cid="Unknown",
+        error="Processing failed after maximum retry attempts"
+    )
+
     
-    return False, error_result 
+    return False, error_result

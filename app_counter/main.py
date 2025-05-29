@@ -13,12 +13,12 @@ from app_counter.models.schemas import (
     StatusResponse
 )
 
-logger = get_logger("token_counter_app")
+logger = get_logger("counter")
 
 # Get token limit from environment variables or use default
-TOKEN_LIMIT_PER_MINUTE = int(os.getenv("OPENAI_TOKEN_LIMIT_PER_MINUTE", "100000"))
+TOKEN_LIMIT_PER_MINUTE = int(os.getenv("APP_TPM_QUOTA", "128000"))
 # Get rate limit from environment variables or use default
-RATE_LIMIT_PER_MINUTE = int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "100"))
+RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_RPM_QUOTA", "250"))
 
 # Initialize the token counter and rate counter services
 token_counter = TokenCounter(tokens_per_minute=TOKEN_LIMIT_PER_MINUTE)
@@ -37,10 +37,10 @@ async def lifespan(app: FastAPI):
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
     account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
     account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
-    container_name = os.getenv("AZURE_LOGS_CONTAINER_NAME", "application-logs")
-    retention_days = int(os.getenv("AZURE_LOGS_RETENTION_DAYS", "30"))
-    scan_interval = int(os.getenv("LOG_SCAN_INTERVAL", "60"))
-    app_name = os.getenv("APP_NAME")  # Get app name from environment variables
+    container_name = os.getenv("AZURE_LOGS_CONTAINER_NAME", "fla-logs")
+    retention_days = int(os.getenv("AZURE_LOGS_RETENTION_DAYS", "7"))
+    scan_interval = int(os.getenv("LOG_SCAN_INTERVAL", "300"))
+    app_name = os.getenv("APP_NAME_FOR_LOGGER")  # Get app name from environment variables
     
     # Only initialize if blob storage is configured (either by URL or account name)
     if account_url or account_name:

@@ -8,7 +8,7 @@ from azure.storage.blob.aio import BlobServiceClient
 from azure.identity.aio import DefaultAzureCredential
 from common_new.logger import get_logger
 
-logger = get_logger("blob_storage")
+logger = get_logger("common")
 
 class AsyncBlobStorageUploader:
     """

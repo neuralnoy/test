@@ -14,7 +14,7 @@ from datetime import datetime
 from common_new.logger import get_logger
 from common_new.blob_storage import AsyncBlobStorageUploader
 
-logger = get_logger("log_monitor")
+logger = get_logger("common")
 
 class LogMonitorService:
     """
