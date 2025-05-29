@@ -3,7 +3,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from common_new.service_bus import AsyncServiceBusHandler
-from common_new.logger import get_logger
+from common_new.logger import get_logger, shutdown_logging
 from app_feedbackform.services.data_processor import process_data
 
 logger = get_logger("feedback_form_app")
@@ -83,6 +83,9 @@ async def lifespan(app: FastAPI):
     # Stop the service bus handler
     await service_bus_handler.stop()
     logger.info("Service bus handler stopped")
+    
+    # Shutdown logging service to release file locks
+    shutdown_logging()
 
 app = FastAPI(title="Feedback Form Processor", lifespan=lifespan)
 

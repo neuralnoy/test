@@ -8,7 +8,7 @@ from azure.servicebus import ServiceBusMessage
 from azure.servicebus.exceptions import ServiceBusError, ServiceBusConnectionError
 from azure.identity.aio import DefaultAzureCredential
 
-from common.logger import get_logger
+from common_new.logger import get_logger
 
 logger = get_logger("common")
 

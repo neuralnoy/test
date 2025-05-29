@@ -1,0 +1,15 @@
+2025-05-29 12:17:13.811 | INFO | test | [MainProcess-25879] | [MainThread-8551128832] | logger.py:201 | Process 25879 became logging leader for unknown_app
+2025-05-29 12:17:13.811 | WARNING | test | [MainProcess-25879] | [MainThread-8551128832] | logger.py:209 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
+2025-05-29 12:17:13.811 | INFO | test | [MainProcess-25879] | [MainThread-8551128832] | <string>:1 | Testing singleton logging
+2025-05-29 12:17:57.028 | INFO | token_counter | [MainProcess-26007] | [MainThread-8551128832] | logger.py:201 | Process 26007 became logging leader for unknown_app
+2025-05-29 12:17:57.029 | WARNING | token_counter | [MainProcess-26007] | [MainThread-8551128832] | logger.py:209 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
+2025-05-29 12:17:57.031 | INFO | token_counter | [MainProcess-26007] | [MainThread-8551128832] | token_counter.py:27 | Initialized TokenCounter with 100000 tokens per minute limit
+2025-05-29 12:17:57.031 | INFO | rate_counter | [MainProcess-26007] | [MainThread-8551128832] | rate_counter.py:27 | Initialized RateCounter with 100 requests per minute limit
+2025-05-29 12:18:27.038 | INFO | common | [MainProcess-26124] | [MainThread-8551128832] | logger.py:201 | Process 26124 became logging leader for unknown_app
+2025-05-29 12:18:27.038 | WARNING | common | [MainProcess-26124] | [MainThread-8551128832] | logger.py:209 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
+2025-05-29 12:18:44.461 | INFO | test_feedbackform | [MainProcess-26186] | [MainThread-8551128832] | logger.py:201 | Process 26186 became logging leader for unknown_app
+2025-05-29 12:18:44.461 | WARNING | test_feedbackform | [MainProcess-26186] | [MainThread-8551128832] | logger.py:209 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
+2025-05-29 12:18:44.461 | INFO | test_feedbackform | [MainProcess-26186] | [MainThread-8551128832] | <string>:1 | Testing
+2025-05-29 12:19:00.802 | INFO | test_reasoner | [MainProcess-26238] | [MainThread-8551128832] | logger.py:201 | Process 26238 became logging leader for unknown_app
+2025-05-29 12:19:00.802 | WARNING | test_reasoner | [MainProcess-26238] | [MainThread-8551128832] | logger.py:209 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
+2025-05-29 12:19:00.802 | INFO | test_reasoner | [MainProcess-26238] | [MainThread-8551128832] | <string>:1 | Testing
