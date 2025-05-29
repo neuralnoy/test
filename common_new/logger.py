@@ -21,8 +21,8 @@ def get_app_name() -> str:
 
 class _SingletonFileLogService:
     """
-    Internal singleton service that ensures only one process handles file logging
-    across multiple workers, preventing rotation conflicts.
+    Internal singleton service that ensures only one process handles file rotation
+    across multiple workers, while allowing all workers to write to the log file.
     """
     
     _instance = None
@@ -87,22 +87,38 @@ class _SingletonFileLogService:
                 self._lock_file = None
             return False
     
-    def get_file_handler(self, formatter: logging.Formatter) -> Optional[logging.Handler]:
-        """Get the file handler if this process is the logging leader."""
-        if not self._is_leader and not self._try_acquire_leadership():
-            # Not the leader and can't become one
+    def _create_simple_file_handler(self, formatter: logging.Formatter) -> Optional[logging.Handler]:
+        """Create a simple file handler for non-leader processes."""
+        try:
+            # Create logs directory
+            os.makedirs(self.logs_dir, exist_ok=True)
+            
+            # Use the same file path as the leader
+            file_path = os.path.join(self.logs_dir, f"{self.app_name}.current.log")
+            
+            # Create a simple FileHandler (no rotation)
+            file_handler = logging.FileHandler(
+                filename=file_path,
+                mode='a',  # Append mode
+                encoding='utf-8'
+            )
+            file_handler.setFormatter(formatter)
+            
+            return file_handler
+            
+        except Exception:
+            # If file handler creation fails, return None
             return None
-            
-        if self._file_handler:
-            return self._file_handler
-            
+    
+    def _create_rotating_file_handler(self, formatter: logging.Formatter) -> Optional[logging.Handler]:
+        """Create a rotating file handler for the leader process."""
         try:
             # Create logs directory
             os.makedirs(self.logs_dir, exist_ok=True)
             
             # Create rotating file handler with daily rotation
             file_path = os.path.join(self.logs_dir, f"{self.app_name}.current.log")
-            self._file_handler = TimedRotatingFileHandler(
+            file_handler = TimedRotatingFileHandler(
                 filename=file_path,
                 when='midnight',
                 interval=1,
@@ -110,15 +126,33 @@ class _SingletonFileLogService:
             )
             
             # Set custom naming pattern for rotated files
-            self._file_handler.namer = lambda name: f"{name.split('.')[0]}_{name.split('.')[-1]}.log"
-            self._file_handler.setFormatter(formatter)
+            file_handler.namer = lambda name: f"{name.split('.')[0]}_{name.split('.')[-1]}.log"
+            file_handler.setFormatter(formatter)
             
-            return self._file_handler
+            return file_handler
             
         except Exception:
             # If file handler creation fails, release leadership
             self._release_leadership()
             return None
+    
+    def get_file_handler(self, formatter: logging.Formatter) -> Optional[logging.Handler]:
+        """Get the appropriate file handler for this process."""
+        if self._file_handler:
+            return self._file_handler
+            
+        # Try to acquire leadership first
+        if not self._is_leader:
+            self._try_acquire_leadership()
+        
+        if self._is_leader:
+            # Leader gets rotating file handler
+            self._file_handler = self._create_rotating_file_handler(formatter)
+            return self._file_handler
+        else:
+            # Non-leader gets simple file handler
+            self._file_handler = self._create_simple_file_handler(formatter)
+            return self._file_handler
     
     def _release_leadership(self):
         """Release the inter-process lock."""
@@ -157,7 +191,7 @@ _log_service = _SingletonFileLogService()
 def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
     """
     Get a configured logger with console and file output.
-    Only one process will handle file logging to prevent rotation conflicts.
+    All processes can write to the log file, but only the leader handles rotation.
     
     Args:
         name: Name of the logger
@@ -192,15 +226,18 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
     root_logger = logging.getLogger()
     if not root_logger.handlers:
         try:
-            # Try to get file handler from singleton service
+            # All processes get a file handler (leader gets rotating, non-leaders get simple)
             file_handler = _log_service.get_file_handler(formatter)
             
             if file_handler:
                 root_logger.addHandler(file_handler)
                 pid = os.getpid()
-                logger.info(f"Process {pid} became logging leader for {_log_service.app_name}")
+                if _log_service._is_leader:
+                    logger.info(f"Process {pid} became logging leader (handles rotation) for {_log_service.app_name}")
+                else:
+                    logger.info(f"Process {pid} is non-leader (writes to file, no rotation) for {_log_service.app_name}")
             else:
-                logger.info(f"Process {os.getpid()} - another process is handling file logging")
+                logger.warning(f"Process {os.getpid()} could not create file handler - console logging only")
                 
             root_logger.setLevel(log_level)
             
