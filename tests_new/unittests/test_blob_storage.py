@@ -294,11 +294,20 @@ class TestAsyncBlobStorageUploaderUploadFileToBlob:
         
         mock_credential = AsyncMock()
         mock_blob_client = AsyncMock()
-        mock_container_client = AsyncMock()
-        mock_service_client = AsyncMock()
         
-        mock_service_client.get_container_client.return_value = mock_container_client
+        # Use regular Mock for container client to avoid coroutine issues
+        mock_container_client = Mock()
         mock_container_client.get_blob_client.return_value = mock_blob_client
+        
+        # Set up async methods only where needed
+        mock_container_client.create_container = AsyncMock()
+        
+        # Use regular Mock for the service client to avoid coroutine issues
+        mock_service_client = Mock()
+        mock_service_client.get_container_client.return_value = mock_container_client
+        
+        # Set up async methods
+        mock_service_client.close = AsyncMock()
         
         file_content = b"test file content"
         
@@ -307,12 +316,13 @@ class TestAsyncBlobStorageUploaderUploadFileToBlob:
                 with patch('builtins.open', mock_open(read_data=file_content)):
                     with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
                         with patch('common_new.blob_storage.BlobServiceClient', return_value=mock_service_client):
-                            result = await uploader._upload_file_to_blob("test.txt", "blob.txt")
-                            
-                            assert result is True
-                            mock_blob_client.upload_blob.assert_called_once_with(file_content, overwrite=True)
-                            mock_service_client.close.assert_called_once()
-                            mock_credential.close.assert_called_once()
+                            with patch('asyncio.sleep'):
+                                result = await uploader._upload_file_to_blob("test.txt", "blob.txt")
+                                
+                                assert result is True
+                                mock_blob_client.upload_blob.assert_called_once_with(file_content, overwrite=True)
+                                mock_service_client.close.assert_called_once()
+                                mock_credential.close.assert_called_once()
     
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -327,11 +337,20 @@ class TestAsyncBlobStorageUploaderUploadFileToBlob:
         
         mock_credential = AsyncMock()
         mock_blob_client = AsyncMock()
-        mock_container_client = AsyncMock()
-        mock_service_client = AsyncMock()
         
-        mock_service_client.get_container_client.return_value = mock_container_client
+        # Use regular Mock for container client to avoid coroutine issues
+        mock_container_client = Mock()
         mock_container_client.get_blob_client.return_value = mock_blob_client
+        
+        # Set up async methods only where needed
+        mock_container_client.create_container = AsyncMock()
+        
+        # Use regular Mock for the service client to avoid coroutine issues
+        mock_service_client = Mock()
+        mock_service_client.get_container_client.return_value = mock_container_client
+        
+        # Set up async methods
+        mock_service_client.close = AsyncMock()
         
         # First attempt fails, second succeeds
         mock_blob_client.upload_blob.side_effect = [Exception("Upload failed"), None]
@@ -362,12 +381,21 @@ class TestAsyncBlobStorageUploaderUploadFileToBlob:
         
         mock_credential = AsyncMock()
         mock_blob_client = AsyncMock()
-        mock_container_client = AsyncMock()
-        mock_service_client = AsyncMock()
         
-        mock_service_client.get_container_client.return_value = mock_container_client
+        # Use regular Mock for container client to avoid coroutine issues
+        mock_container_client = Mock()
         mock_container_client.get_blob_client.return_value = mock_blob_client
         mock_blob_client.upload_blob.side_effect = Exception("Upload failed")
+        
+        # Set up async methods only where needed
+        mock_container_client.create_container = AsyncMock()
+        
+        # Use regular Mock for the service client to avoid coroutine issues
+        mock_service_client = Mock()
+        mock_service_client.get_container_client.return_value = mock_container_client
+        
+        # Set up async methods
+        mock_service_client.close = AsyncMock()
         
         file_content = b"test file content"
         
