@@ -4,7 +4,7 @@ Azure OpenAI Service for making API calls to Azure-hosted OpenAI models.
 import os
 import tiktoken
 import instructor
-from typing import Dict, List, Any, Optional, Union, TypeVar, Type
+from typing import Dict, List, Any, Optional, TypeVar, Type
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from openai import AzureOpenAI
@@ -58,7 +58,7 @@ class AzureOpenAIService:
         self.client = self._initialize_client()
         
         # Initialize instructor client for structured outputs
-        self.instructor_client = instructor.from_openai(self.client)
+        self.instructor_client = instructor.from_openai(self.client, mode=instructor.Mode.TOOLS)
     
     
     def _initialize_client(self) -> AzureOpenAI:
@@ -166,80 +166,6 @@ class AzureOpenAIService:
         
         return token_count
     
-    async def chat_completion(
-        self, 
-        messages: List[Dict[str, str]], 
-        model: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
-        top_p: float = 1.0,
-        frequency_penalty: float = 0.0,
-        presence_penalty: float = 0.0,
-        stop: Optional[Union[str, List[str]]] = None,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """
-        Generate a chat completion using the specified Azure OpenAI model.
-        This method now includes token tracking to prevent rate limit issues.
-        
-        Args:
-            messages: A list of messages in the conversation.
-            model: The deployment name of the model. Defaults to self.default_model.
-            temperature: Controls randomness. Higher values mean more random completions.
-            max_tokens: The maximum number of tokens to generate.
-            top_p: Controls diversity via nucleus sampling.
-            frequency_penalty: How much to penalize new tokens based on their frequency.
-            presence_penalty: How much to penalize new tokens based on their presence.
-            stop: Sequences where the API will stop generating tokens.
-            
-        Returns:
-            Dict[str, Any]: The completion response.
-            
-        Raises:
-            ValueError: If token limit would be exceeded
-        """
-        model = model or self.default_model
-        
-        # Estimate token usage with tiktoken
-        estimated_tokens = self._estimate_token_count(messages, model, max_tokens)
-        
-        # Attempt to lock tokens
-        allowed, request_id, error_message = await self.token_client.lock_tokens(estimated_tokens)
-        
-        if not allowed:
-            logger.warning(f"Request denied: {error_message}")
-            # Pass through the exact error message to preserve the rate vs token limit distinction
-            raise ValueError(error_message)
-            
-        try:
-            logger.debug(f"Sending chat completion request to model: {model}")
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                top_p=top_p,
-                frequency_penalty=frequency_penalty,
-                presence_penalty=presence_penalty,
-                stop=stop,
-                response_format={"type": "json_object"},
-                **kwargs
-            )
-            
-            # Report actual token usage
-            if hasattr(response, 'usage'):
-                await self.token_client.report_usage(
-                    request_id=request_id,
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=response.usage.completion_tokens
-                )
-            
-            return response
-        except Exception as e:
-            # Release tokens if API call fails
-            await self.token_client.release_tokens(request_id)
-            logger.error(f"Error in chat completion: {str(e)}")
-            raise
     
     def format_prompt(
         self,
@@ -278,64 +204,8 @@ class AzureOpenAIService:
             raise ValueError(error_msg)
             
         return messages
-    
-    async def send_prompt(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        variables: Dict[str, Any] = None,
-        examples: List[Dict[str, str]] = None,
-        model: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
-        **kwargs
-    ) -> str:
-        """
-        Send a prompt with the provided system prompt, user prompt, and variables.
-        Includes retry logic for token rate limit errors.
-        
-        Args:
-            system_prompt: The system prompt that sets context for the AI.
-            user_prompt: The user prompt template with placeholders for variables.
-            variables: Dictionary of variables to substitute in the template.
-            examples: Optional list of few-shot examples as message dictionaries.
-            model: The model to use (defaults to self.default_model).
-            temperature: Controls randomness. Higher values mean more random completions.
-            max_tokens: The maximum number of tokens to generate.
-            **kwargs: Additional parameters to pass to the chat completion.
-            
-        Returns:
-            str: The generated text response.
-        """
-        # Create a helper function that doesn't use self as first arg to work with our retry helper
-        async def _do_send_prompt():
-            # Format the prompt with system message, examples, and user message with variable substitution
-            messages = self.format_prompt(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                variables=variables,
-                examples=examples
-            )
-            
-            # Send the chat completion request
-            response = await self.chat_completion(
-                messages=messages,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                **kwargs
-            )
-            
-            # Extract and return the response text
-            return response.choices[0].message.content
-            
-        # Use our retry helper that will automatically handle waiting for rate limit windows
-        try:
-            return await with_token_limit_retry(_do_send_prompt, self.token_client, max_retries=3)
-        except Exception as e:
-            logger.error(f"Error sending prompt: {str(e)}")
-            raise 
-    
+
+
     async def structured_completion(
         self,
         response_model: Type[T],
@@ -343,7 +213,6 @@ class AzureOpenAIService:
         model: Optional[str] = None,
         temperature: float = 0.0,
         max_tokens: Optional[int] = None,
-        max_retries: int = 3,
         **kwargs
     ) -> T:
         """
@@ -355,7 +224,6 @@ class AzureOpenAIService:
             model: Model to use (defaults to self.default_model)
             temperature: Temperature for generation (defaults to 0.0 for deterministic outputs)
             max_tokens: Maximum tokens to generate
-            max_retries: Maximum retries for validation failures
             **kwargs: Additional parameters for the completion
             
         Returns:
@@ -389,7 +257,6 @@ class AzureOpenAIService:
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                max_retries=max_retries,
                 **kwargs
             )
             
@@ -426,7 +293,6 @@ class AzureOpenAIService:
         model: Optional[str] = None,
         temperature: float = 0.0,
         max_tokens: Optional[int] = None,
-        max_retries: int = 3,
         **kwargs
     ) -> T:
         """
@@ -464,13 +330,12 @@ class AzureOpenAIService:
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                max_retries=max_retries,
                 **kwargs
             )
         
         # Use retry helper for token limit handling
         try:
-            return await with_token_limit_retry(_do_structured_prompt, self.token_client, max_retries=3)
+            return await with_token_limit_retry(_do_structured_prompt, self.token_client)
         except Exception as e:
             logger.error(f"Error in structured prompt: {str(e)}")
             raise 
