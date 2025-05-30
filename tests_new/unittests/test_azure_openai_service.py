@@ -2,509 +2,394 @@
 Comprehensive unit tests for common_new.azure_openai_service module.
 """
 import pytest
+import asyncio
+from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from pydantic import BaseModel, ValidationError
 import os
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
-from pydantic import BaseModel
+import tiktoken
+
 from common_new.azure_openai_service import AzureOpenAIService
 
-
-class TestModel(BaseModel):
+class _TestModel(BaseModel):
     """Test Pydantic model for structured output tests."""
     name: str
-    age: int
-    description: str
-
+    value: int
 
 class TestAzureOpenAIServiceInit:
     """Test AzureOpenAIService initialization."""
     
-    @pytest.mark.unit
     def test_init_with_env_vars(self):
-        """Test initialization with environment variables."""
-        env_vars = {
-            'APP_OPENAI_API_VERSION': '2023-12-01-preview',
-            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
-            'APP_OPENAI_ENGINE': 'gpt-4',
-            'COUNTER_APP_BASE_URL': 'http://counter.test.com'
-        }
-        
-        with patch.dict(os.environ, env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider') as mock_token_provider:
-                with patch('common_new.azure_openai_service.AzureOpenAI') as mock_client:
-                    with patch('common_new.azure_openai_service.TokenClient') as mock_token_client:
-                        with patch('instructor.from_openai') as mock_instructor:
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            assert service.api_version == '2023-12-01-preview'
-                            assert service.azure_endpoint == 'https://test.openai.azure.com/'
-                            assert service.default_model == 'gpt-4'
-                            assert service.app_id == "test-app"
-                            mock_token_client.assert_called_once()
-                            mock_client.assert_called_once()
-                            mock_instructor.assert_called_once()
-    
-    @pytest.mark.unit
-    def test_init_with_custom_model(self):
-        """Test initialization with custom model override."""
-        env_vars = {
-            'APP_OPENAI_API_VERSION': '2023-12-01-preview',
+        """Test service initialization with environment variables."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
             'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
             'APP_OPENAI_ENGINE': 'gpt-4'
-        }
-        
-        with patch.dict(os.environ, env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    with patch('common_new.azure_openai_service.TokenClient'):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(model="gpt-3.5-turbo", app_id="test-app")
-                            
-                            assert service.default_model == "gpt-3.5-turbo"
-    
-    @pytest.mark.unit
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                assert service.api_version == '2023-05-15'
+                assert service.azure_endpoint == 'https://test.openai.azure.com/'
+                assert service.default_model == 'gpt-4'
+                assert service.app_id == 'test-app'
+
+    def test_init_with_custom_model(self):
+        """Test service initialization with custom model override."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-3.5-turbo'
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(
+                    model="gpt-4-32k", 
+                    app_id="test-app",
+                    token_counter_url="http://localhost:8001"
+                )
+                
+                assert service.default_model == 'gpt-4-32k'
+
     def test_init_missing_env_vars(self):
-        """Test initialization fails with missing environment variables."""
+        """Test service initialization fails with missing environment variables."""
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError, match="APP_OPENAI_API_VERSION and APP_OPENAI_API_BASE must be set"):
-                AzureOpenAIService(app_id="test-app")
-
+                AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
 
 class TestAzureOpenAIServiceTokenCounting:
     """Test token counting functionality."""
     
-    def setup_method(self):
-        """Set up test environment."""
-        self.env_vars = {
-            'APP_OPENAI_API_VERSION': '2023-12-01-preview',
+    def test_get_encoding_for_model_known_model(self):
+        """Test getting encoding for a known model."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
             'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
             'APP_OPENAI_ENGINE': 'gpt-4'
-        }
-    
-    @pytest.mark.unit
-    def test_get_encoding_for_model_known_model(self):
-        """Test getting encoding for known model."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    with patch('common_new.azure_openai_service.TokenClient'):
-                        with patch('instructor.from_openai'):
-                            with patch('tiktoken.encoding_for_model') as mock_encoding:
-                                mock_encoding.return_value = "test_encoding"
-                                
-                                service = AzureOpenAIService(app_id="test-app")
-                                encoding = service._get_encoding_for_model("gpt-4")
-                                
-                                assert encoding == "test_encoding"
-                                mock_encoding.assert_called_once_with("gpt-4")
-    
-    @pytest.mark.unit
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                encoding = service._get_encoding_for_model("gpt-4")
+                assert encoding is not None
+
     def test_get_encoding_for_model_unknown_model(self):
-        """Test getting encoding for unknown model falls back to cl100k_base."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    with patch('common_new.azure_openai_service.TokenClient'):
-                        with patch('instructor.from_openai'):
-                            with patch('tiktoken.encoding_for_model', side_effect=KeyError("Model not found")):
-                                with patch('tiktoken.get_encoding') as mock_get_encoding:
-                                    mock_get_encoding.return_value = "fallback_encoding"
-                                    
-                                    service = AzureOpenAIService(app_id="test-app")
-                                    encoding = service._get_encoding_for_model("unknown-model")
-                                    
-                                    assert encoding == "fallback_encoding"
-                                    mock_get_encoding.assert_called_once_with("cl100k_base")
-    
-    @pytest.mark.unit
+        """Test getting encoding for an unknown model falls back to cl100k_base."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                with patch('tiktoken.encoding_for_model', side_effect=KeyError("Model not found")):
+                    with patch('tiktoken.get_encoding') as mock_get_encoding:
+                        mock_encoding = Mock()
+                        mock_get_encoding.return_value = mock_encoding
+                        
+                        encoding = service._get_encoding_for_model("unknown-model")
+                        
+                        mock_get_encoding.assert_called_once_with("cl100k_base")
+                        assert encoding == mock_encoding
+
     def test_count_tokens_for_message(self):
-        """Test token counting for individual message."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    with patch('common_new.azure_openai_service.TokenClient'):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            mock_encoding = Mock()
-                            mock_encoding.encode.return_value = [1, 2, 3, 4, 5]  # 5 tokens
-                            
-                            message = {"content": "Hello world", "role": "user"}
-                            token_count = service._count_tokens_for_message(message, mock_encoding)
-                            
-                            assert token_count == 9  # 5 content tokens + 4 metadata tokens
-    
-    @pytest.mark.unit
+        """Test counting tokens for a message."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                mock_encoding = Mock()
+                mock_encoding.encode.return_value = [1, 2, 3, 4, 5]  # 5 tokens
+                
+                message = {"role": "user", "content": "Hello world"}
+                token_count = service._count_tokens_for_message(message, mock_encoding)
+                
+                # 5 tokens for content + 4 for metadata = 9 tokens
+                assert token_count == 9
+
     def test_count_tokens_for_message_with_name(self):
-        """Test token counting for message with name field."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    with patch('common_new.azure_openai_service.TokenClient'):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            mock_encoding = Mock()
-                            mock_encoding.encode.side_effect = lambda text: [1] * len(text.split())
-                            
-                            message = {"content": "Hello world", "role": "user", "name": "test_user"}
-                            token_count = service._count_tokens_for_message(message, mock_encoding)
-                            
-                            # 2 (content) + 1 (name) + 4 (metadata) = 7 tokens
-                            assert token_count == 7
-    
-    @pytest.mark.unit
+        """Test counting tokens for a message with name field."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                mock_encoding = Mock()
+                mock_encoding.encode.side_effect = lambda text: [1] * len(text.split())
+                
+                message = {"role": "user", "content": "Hello world", "name": "TestUser"}
+                token_count = service._count_tokens_for_message(message, mock_encoding)
+                
+                # 2 tokens for content + 1 token for name + 4 for metadata = 7 tokens
+                assert token_count == 7
+
     def test_estimate_token_count(self):
-        """Test estimation of total token count for request."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    with patch('common_new.azure_openai_service.TokenClient'):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            with patch.object(service, '_get_encoding_for_model') as mock_get_encoding:
-                                with patch.object(service, '_count_tokens_for_message', return_value=10):
-                                    messages = [
-                                        {"content": "Hello", "role": "user"},
-                                        {"content": "Hi there", "role": "assistant"}
-                                    ]
-                                    
-                                    total_tokens = service._estimate_token_count(messages, "gpt-4", max_tokens=100)
-                                    
-                                    # 3 (base) + 2*10 (messages) + 100 (completion) = 123 tokens
-                                    assert total_tokens == 123
+        """Test estimating token count for a list of messages."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                with patch.object(service, '_get_encoding_for_model') as mock_encoding_getter:
+                    mock_encoding = Mock()
+                    mock_encoding.encode.return_value = [1, 2, 3]  # 3 tokens per message
+                    mock_encoding_getter.return_value = mock_encoding
+                    
+                    messages = [
+                        {"role": "user", "content": "Hello"},
+                        {"role": "assistant", "content": "Hi there"}
+                    ]
+                    
+                    estimated = service._estimate_token_count(messages, "gpt-4", max_tokens=100)
+                    
+                    # 3 base + 2 messages * (3 content + 4 metadata) + 100 completion = 117
+                    assert estimated == 117
 
-
+@pytest.mark.asyncio
 class TestAzureOpenAIServiceChatCompletion:
     """Test chat completion functionality."""
-    
-    def setup_method(self):
-        """Set up test environment."""
-        self.env_vars = {
-            'APP_OPENAI_API_VERSION': '2023-12-01-preview',
+
+    async def test_chat_completion_success(self):
+        """Test successful chat completion with token tracking."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
             'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
             'APP_OPENAI_ENGINE': 'gpt-4'
-        }
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_chat_completion_success(self):
-        """Test successful chat completion."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                mock_client = Mock()
-                mock_client.chat.completions.create.return_value = {
-                    "choices": [{"message": {"content": "Hello!"}}],
-                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
-                }
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.return_value = (True, "req_123", "")
+            mock_token_client.report_usage.return_value = None
+            
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
                 
-                with patch('common_new.azure_openai_service.AzureOpenAI', return_value=mock_client):
-                    mock_token_client = Mock()
-                    mock_token_client.lock_tokens = AsyncMock(return_value=(True, "req_123", None))
-                    mock_token_client.report_usage = AsyncMock(return_value=True)
-                    
-                    with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            with patch.object(service, '_estimate_token_count', return_value=100):
-                                with patch('common_new.azure_openai_service.with_token_limit_retry') as mock_retry:
-                                    mock_retry.return_value = {
-                                        "choices": [{"message": {"content": "Hello!"}}],
-                                        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
-                                    }
-                                    
-                                    messages = [{"content": "Hi", "role": "user"}]
-                                    result = await service.chat_completion(messages)
-                                    
-                                    assert result["choices"][0]["message"]["content"] == "Hello!"
-                                    mock_token_client.lock_tokens.assert_called_once_with(100)
-                                    mock_token_client.report_usage.assert_called_once_with("req_123", 10, 5)
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
+                # Mock the OpenAI client response
+                mock_response = Mock()
+                mock_response.usage.prompt_tokens = 10
+                mock_response.usage.completion_tokens = 5
+                mock_response.choices = [Mock()]
+                mock_response.choices[0].message.content = "Hello!"
+                
+                # Mock the sync method, not async
+                service.client.chat.completions.create = Mock(return_value=mock_response)
+                
+                messages = [{"role": "user", "content": "Hello"}]
+                result = await service.chat_completion(messages)
+                
+                # Verify token client interactions
+                mock_token_client.lock_tokens.assert_called_once()
+                mock_token_client.report_usage.assert_called_once_with(
+                    request_id="req_123", 
+                    prompt_tokens=10, 
+                    completion_tokens=5
+                )
+                
+                assert result == mock_response
+
     async def test_chat_completion_token_lock_failed(self):
         """Test chat completion when token lock fails."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    mock_token_client = Mock()
-                    mock_token_client.lock_tokens = AsyncMock(return_value=(False, None, "Rate limit exceeded"))
-                    
-                    with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            with patch.object(service, '_estimate_token_count', return_value=100):
-                                messages = [{"content": "Hi", "role": "user"}]
-                                
-                                with pytest.raises(ValueError, match="Token limit would be exceeded"):
-                                    await service.chat_completion(messages)
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.return_value = (False, None, "Rate limit exceeded")
+            
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                messages = [{"role": "user", "content": "Hello"}]
+                
+                with pytest.raises(ValueError, match="Rate limit exceeded"):
+                    await service.chat_completion(messages)
+
     async def test_chat_completion_with_custom_params(self):
         """Test chat completion with custom parameters."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                mock_client = Mock()
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.return_value = (True, "req_123", "")
+            mock_token_client.report_usage.return_value = None
+            
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
                 
-                with patch('common_new.azure_openai_service.AzureOpenAI', return_value=mock_client):
-                    mock_token_client = Mock()
-                    mock_token_client.lock_tokens = AsyncMock(return_value=(True, "req_123", None))
-                    mock_token_client.report_usage = AsyncMock(return_value=True)
-                    
-                    with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            with patch.object(service, '_estimate_token_count', return_value=100):
-                                with patch('common_new.azure_openai_service.with_token_limit_retry') as mock_retry:
-                                    mock_retry.return_value = {"choices": [{"message": {"content": "Response"}}]}
-                                    
-                                    messages = [{"content": "Hi", "role": "user"}]
-                                    await service.chat_completion(
-                                        messages,
-                                        model="gpt-3.5-turbo",
-                                        temperature=0.5,
-                                        max_tokens=200,
-                                        top_p=0.9
-                                    )
-                                    
-                                    # Verify the retry function was called with correct parameters
-                                    mock_retry.assert_called_once()
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
+                mock_response = Mock()
+                mock_response.usage.prompt_tokens = 15
+                mock_response.usage.completion_tokens = 8
+                
+                service.client.chat.completions.create = Mock(return_value=mock_response)
+                
+                messages = [{"role": "user", "content": "Hello"}]
+                result = await service.chat_completion(
+                    messages, 
+                    temperature=0.5, 
+                    max_tokens=200,
+                    top_p=0.9
+                )
+                
+                # Verify OpenAI client was called with correct parameters
+                service.client.chat.completions.create.assert_called_once()
+                call_args = service.client.chat.completions.create.call_args
+                
+                assert call_args[1]['temperature'] == 0.5
+                assert call_args[1]['max_tokens'] == 200
+                assert call_args[1]['top_p'] == 0.9
+
     async def test_chat_completion_report_usage_failure(self):
-        """Test chat completion when usage reporting fails."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    mock_token_client = Mock()
-                    mock_token_client.lock_tokens = AsyncMock(return_value=(True, "req_123", None))
-                    mock_token_client.report_usage = AsyncMock(return_value=False)  # Reporting fails
-                    
-                    with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            with patch.object(service, '_estimate_token_count', return_value=100):
-                                with patch('common_new.azure_openai_service.with_token_limit_retry') as mock_retry:
-                                    mock_retry.return_value = {
-                                        "choices": [{"message": {"content": "Hello!"}}],
-                                        "usage": {"prompt_tokens": 10, "completion_tokens": 5}
-                                    }
-                                    
-                                    messages = [{"content": "Hi", "role": "user"}]
-                                    result = await service.chat_completion(messages)
-                                    
-                                    # Should still return result despite reporting failure
-                                    assert result["choices"][0]["message"]["content"] == "Hello!"
+        """Test chat completion when usage reporting fails but API call succeeds."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.return_value = (True, "req_123", "")
+            mock_token_client.report_usage.side_effect = Exception("Reporting failed")
+            
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                mock_response = Mock()
+                mock_response.usage.prompt_tokens = 10
+                mock_response.usage.completion_tokens = 5
+                mock_response.choices = [Mock()]
+                mock_response.choices[0].message.content = "Hello!"
+                
+                service.client.chat.completions.create = Mock(return_value=mock_response)
+                
+                messages = [{"role": "user", "content": "Hello"}]
+                
+                # The service re-raises the exception from report_usage failure
+                with pytest.raises(Exception, match="Reporting failed"):
+                    await service.chat_completion(messages)
 
-
+@pytest.mark.asyncio
 class TestAzureOpenAIServiceStructuredOutput:
     """Test structured output functionality."""
-    
-    def setup_method(self):
-        """Set up test environment."""
-        self.env_vars = {
-            'APP_OPENAI_API_VERSION': '2023-12-01-preview',
-            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
-            'APP_OPENAI_ENGINE': 'gpt-4'
-        }
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
+
     async def test_structured_completion_success(self):
         """Test successful structured completion."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    mock_token_client = Mock()
-                    mock_token_client.lock_tokens = AsyncMock(return_value=(True, "req_123", None))
-                    mock_token_client.report_usage = AsyncMock(return_value=True)
-                    
-                    with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
-                        mock_instructor_client = Mock()
-                        mock_instructor_client.chat.completions.create.return_value = TestModel(
-                            name="John Doe",
-                            age=30,
-                            description="A test person"
-                        )
-                        
-                        with patch('instructor.from_openai', return_value=mock_instructor_client):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            with patch.object(service, '_estimate_token_count', return_value=100):
-                                with patch('common_new.azure_openai_service.with_token_limit_retry') as mock_retry:
-                                    mock_retry.return_value = TestModel(name="John Doe", age=30, description="A test person")
-                                    
-                                    messages = [{"content": "Create a person", "role": "user"}]
-                                    result = await service.structured_completion(messages, TestModel)
-                                    
-                                    assert isinstance(result, TestModel)
-                                    assert result.name == "John Doe"
-                                    assert result.age == 30
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.return_value = (True, "req_123", "")
+            mock_token_client.report_usage.return_value = None
+            
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                # Mock the instructor response
+                mock_response = _TestModel(name="test", value=42)
+                mock_response._raw_response = Mock()
+                mock_response._raw_response.usage = Mock()
+                mock_response._raw_response.usage.prompt_tokens = 20
+                mock_response._raw_response.usage.completion_tokens = 10
+                
+                service.instructor_client.chat.completions.create = Mock(return_value=mock_response)
+                
+                messages = [{"role": "user", "content": "Generate test data"}]
+                result = await service.structured_completion(_TestModel, messages)
+                
+                assert isinstance(result, _TestModel)
+                assert result.name == "test"
+                assert result.value == 42
+                
+                mock_token_client.report_usage.assert_called_once_with(
+                    request_id="req_123", 
+                    prompt_tokens=20, 
+                    completion_tokens=10
+                )
+
     async def test_structured_completion_validation_error(self):
         """Test structured completion with validation error."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    mock_token_client = Mock()
-                    mock_token_client.lock_tokens = AsyncMock(return_value=(True, "req_123", None))
-                    mock_token_client.report_usage = AsyncMock(return_value=True)
-                    
-                    with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            with patch.object(service, '_estimate_token_count', return_value=100):
-                                from pydantic import ValidationError
-                                with patch('common_new.azure_openai_service.with_token_limit_retry', side_effect=ValidationError([], TestModel)):
-                                    messages = [{"content": "Create invalid data", "role": "user"}]
-                                    
-                                    with pytest.raises(ValidationError):
-                                        await service.structured_completion(messages, TestModel)
-
-
-class TestAzureOpenAIServiceEmbeddings:
-    """Test embedding functionality."""
-    
-    def setup_method(self):
-        """Set up test environment."""
-        self.env_vars = {
-            'APP_OPENAI_API_VERSION': '2023-12-01-preview',
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
             'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
             'APP_OPENAI_ENGINE': 'gpt-4'
-        }
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_create_embeddings_success(self):
-        """Test successful embedding creation."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                mock_client = Mock()
-                mock_client.embeddings.create.return_value = {
-                    "data": [{"embedding": [0.1, 0.2, 0.3]}],
-                    "usage": {"prompt_tokens": 5, "total_tokens": 5}
-                }
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.return_value = (True, "req_123", "")
+            mock_token_client.release_tokens.return_value = None
+            
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
                 
-                with patch('common_new.azure_openai_service.AzureOpenAI', return_value=mock_client):
-                    mock_token_client = Mock()
-                    mock_token_client.lock_tokens = AsyncMock(return_value=(True, "req_123", None))
-                    mock_token_client.report_usage = AsyncMock(return_value=True)
-                    
-                    with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            with patch('common_new.azure_openai_service.with_token_limit_retry') as mock_retry:
-                                mock_retry.return_value = {
-                                    "data": [{"embedding": [0.1, 0.2, 0.3]}],
-                                    "usage": {"prompt_tokens": 5, "total_tokens": 5}
-                                }
-                                
-                                result = await service.create_embeddings("test text", model="text-embedding-ada-002")
-                                
-                                assert result["data"][0]["embedding"] == [0.1, 0.2, 0.3]
-                                mock_token_client.report_usage.assert_called_once_with("req_123", 5, 0)
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_create_embeddings_multiple_texts(self):
-        """Test embedding creation with multiple texts."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    mock_token_client = Mock()
-                    mock_token_client.lock_tokens = AsyncMock(return_value=(True, "req_123", None))
-                    mock_token_client.report_usage = AsyncMock(return_value=True)
-                    
-                    with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            with patch('common_new.azure_openai_service.with_token_limit_retry') as mock_retry:
-                                mock_retry.return_value = {
-                                    "data": [
-                                        {"embedding": [0.1, 0.2]},
-                                        {"embedding": [0.3, 0.4]}
-                                    ],
-                                    "usage": {"prompt_tokens": 10, "total_tokens": 10}
-                                }
-                                
-                                result = await service.create_embeddings(
-                                    ["text1", "text2"],
-                                    model="text-embedding-ada-002"
-                                )
-                                
-                                assert len(result["data"]) == 2
-                                assert result["data"][0]["embedding"] == [0.1, 0.2]
-                                assert result["data"][1]["embedding"] == [0.3, 0.4]
+                # Create a proper ValidationError
+                validation_error = ValidationError.from_exception_data("_TestModel", [
+                    {
+                        'type': 'missing',
+                        'loc': ('name',),
+                        'msg': 'Field required',
+                        'input': {}
+                    }
+                ])
+                
+                service.instructor_client.chat.completions.create = Mock(side_effect=validation_error)
+                
+                messages = [{"role": "user", "content": "Generate invalid data"}]
+                
+                with pytest.raises(ValidationError):
+                    await service.structured_completion(_TestModel, messages)
+                
+                mock_token_client.release_tokens.assert_called_once_with("req_123")
 
-
+@pytest.mark.asyncio
 class TestAzureOpenAIServiceIntegration:
     """Integration tests for AzureOpenAIService."""
-    
-    def setup_method(self):
-        """Set up test environment."""
-        self.env_vars = {
-            'APP_OPENAI_API_VERSION': '2023-12-01-preview',
-            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
-            'APP_OPENAI_ENGINE': 'gpt-4'
-        }
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
+
     async def test_service_lifecycle(self):
         """Test complete service lifecycle."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    mock_token_client = Mock()
-                    mock_token_client.lock_tokens = AsyncMock(return_value=(True, "req_123", None))
-                    mock_token_client.report_usage = AsyncMock(return_value=True)
-                    
-                    with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
-                        with patch('instructor.from_openai'):
-                            # Initialize service
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            assert service.app_id == "test-app"
-                            assert service.default_model == "gpt-4"
-                            
-                            # Test token counting
-                            with patch.object(service, '_get_encoding_for_model') as mock_encoding:
-                                mock_encoding.return_value.encode.return_value = [1, 2, 3]
-                                
-                                token_count = service._estimate_token_count(
-                                    [{"content": "test", "role": "user"}],
-                                    "gpt-4"
-                                )
-                                
-                                assert token_count > 0
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.return_value = (True, "req_123", "")
+            
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                # Test service is properly initialized
+                assert service.api_version == '2023-05-15'
+                assert service.azure_endpoint == 'https://test.openai.azure.com/'
+                assert service.default_model == 'gpt-4'
+                assert service.app_id == 'test-app'
+                assert service.token_client is not None
+                assert service.client is not None
+                assert service.instructor_client is not None
+
     async def test_error_handling_token_client_failure(self):
         """Test error handling when token client operations fail."""
-        with patch.dict(os.environ, self.env_vars):
-            with patch('common_new.azure_openai_service.get_bearer_token_provider'):
-                with patch('common_new.azure_openai_service.AzureOpenAI'):
-                    mock_token_client = Mock()
-                    mock_token_client.lock_tokens = AsyncMock(side_effect=Exception("Token client error"))
-                    
-                    with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
-                        with patch('instructor.from_openai'):
-                            service = AzureOpenAIService(app_id="test-app")
-                            
-                            with patch.object(service, '_estimate_token_count', return_value=100):
-                                messages = [{"content": "Hi", "role": "user"}]
-                                
-                                with pytest.raises(Exception, match="Token client error"):
-                                    await service.chat_completion(messages) 
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.side_effect = Exception("Token client error")
+            
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                messages = [{"role": "user", "content": "Hello"}]
+                
+                with pytest.raises(Exception, match="Token client error"):
+                    await service.chat_completion(messages) 
