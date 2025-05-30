@@ -60,7 +60,7 @@ Data (Feedback, Call, etc.) -> Service Bus Queue -> Feedback Processor -> AI Ana
 │   ├── __init__.py
 │   ├── main.py                  # FastAPI application
 │   └── README.md                # Service documentation
-├── common/                      # Shared utilities and services
+├── common_new/                  # Updated shared utilities and services
 │   ├── __init__.py
 │   ├── azure_openai_service.py  # Azure OpenAI client
 │   ├── blob_storage.py          # Azure Blob Storage client
@@ -70,7 +70,19 @@ Data (Feedback, Call, etc.) -> Service Bus Queue -> Feedback Processor -> AI Ana
 │   ├── service_bus.py           # Service Bus handler
 │   ├── token_client.py          # Client for token counter service
 │   └── README.md                # Common library documentation
-├── tests/                       # Test suite
+├── tests_new/                   # Comprehensive test suite
+│   ├── integrationtests/        # Integration tests
+│   ├── unittests/               # Unit tests
+│   │   ├── __init__.py
+│   │   ├── test_azure_openai_service.py    # Azure OpenAI service tests
+│   │   ├── test_blob_storage.py            # Blob storage tests
+│   │   ├── test_log_monitor.py             # Log monitor tests
+│   │   ├── test_logger.py                  # Logger tests
+│   │   ├── test_retry_helpers.py           # Retry helpers tests
+│   │   ├── test_service_bus.py             # Service bus tests
+│   │   └── test_token_client.py            # Token client tests
+│   └── README.md                # Testing documentation
+├── tests/                       # Legacy test suite
 │   ├── integrationtests/        # Integration tests
 │   ├── unittests/               # Unit tests
 │   └── README.md                # Testing documentation
@@ -175,8 +187,8 @@ Each component has its own detailed README file:
 
 - [Feedback Form Processing Service](./app_feedbackform/README.md)
 - [Token Counter Service](./app_counter/README.md)
-- [Common Library](./common/README.md)
-- [Tests](./tests/README.md)
+- [Common Library](./common_new/README.md)
+- [Tests](./tests_new/README.md)
 
 ## Key Technical Implementation Details
 
