@@ -269,7 +269,11 @@ class TestAzureOpenAIServiceStructuredOutput:
                 mock_response._raw_response.usage.prompt_tokens = 20
                 mock_response._raw_response.usage.completion_tokens = 10
                 
-                service.instructor_client.chat.completions.create = AsyncMock(return_value=mock_response)
+                # Create an explicit async mock function
+                async def mock_create(*args, **kwargs):
+                    return mock_response
+                
+                service.instructor_client.chat.completions.create = mock_create
                 
                 messages = [{"role": "user", "content": "Generate test data"}]
                 result = await service.structured_completion(_TestModel, messages)
