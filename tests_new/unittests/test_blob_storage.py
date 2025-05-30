@@ -289,7 +289,9 @@ class TestAsyncBlobStorageUploaderUploadFileToBlob:
         """Test successful file upload to blob."""
         uploader = AsyncBlobStorageUploader(
             account_url="https://test.blob.core.windows.net",
-            container_name="test-container"
+            container_name="test-container",
+            max_retries=3,  # Limit retries for faster test execution
+            retry_delay=0.1
         )
         
         mock_credential = AsyncMock()
