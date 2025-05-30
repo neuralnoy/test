@@ -251,7 +251,7 @@ class AzureOpenAIService:
             logger.debug(f"Sending structured completion request to model: {model}")
             
             # Use instructor for structured completion
-            response = await self.instructor_client.chat.completions.create(
+            response = self.instructor_client.chat.completions.create(
                 model=model,
                 response_model=response_model,
                 messages=messages,

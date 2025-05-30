@@ -269,11 +269,8 @@ class TestAzureOpenAIServiceStructuredOutput:
                 mock_response._raw_response.usage.prompt_tokens = 20
                 mock_response._raw_response.usage.completion_tokens = 10
                 
-                # Create an explicit async mock function
-                async def mock_create(*args, **kwargs):
-                    return mock_response
-                
-                service.instructor_client.chat.completions.create = mock_create
+                # Use regular Mock since instructor create method is synchronous
+                service.instructor_client.chat.completions.create = Mock(return_value=mock_response)
                 
                 messages = [{"role": "user", "content": "Generate test data"}]
                 result = await service.structured_completion(_TestModel, messages)
@@ -312,6 +309,7 @@ class TestAzureOpenAIServiceStructuredOutput:
                     }
                 ])
                 
+                # Use regular Mock since instructor create method is synchronous
                 service.instructor_client.chat.completions.create = Mock(side_effect=validation_error)
                 
                 messages = [{"role": "user", "content": "Generate invalid data"}]
@@ -334,11 +332,8 @@ class TestAzureOpenAIServiceStructuredOutput:
             with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
                 service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
                 
-                # Create an explicit async function (though it shouldn't be called)
-                async def mock_create_not_called(*args, **kwargs):
-                    return _TestModel(name="should_not_be_called", value=999)
-
-                service.instructor_client.chat.completions.create = mock_create_not_called
+                # Use regular Mock since instructor create method is synchronous
+                service.instructor_client.chat.completions.create = Mock(return_value=_TestModel(name="should_not_be_called", value=999))
 
                 messages = [{"role": "user", "content": "Generate test data"}]
                 with pytest.raises(ValueError, match="Token limit exceeded"):
@@ -346,9 +341,7 @@ class TestAzureOpenAIServiceStructuredOutput:
                 
                 mock_token_client.lock_tokens.assert_called_once()
                 mock_token_client.release_tokens.assert_not_called() # Tokens not locked, so not released
-                # Note: We can't easily assert that the mock function wasn't called 
-                # since it's not a Mock object, but the test should pass if the 
-                # token limit check prevents the API call
+                service.instructor_client.chat.completions.create.assert_not_called() # API should not be called
 
     async def test_structured_completion_api_error(self):
         """Test structured completion handles API errors and releases tokens."""
@@ -364,11 +357,8 @@ class TestAzureOpenAIServiceStructuredOutput:
             with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
                 service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
 
-                # Create an explicit async function that raises an exception
-                async def mock_create_error(*args, **kwargs):
-                    raise Exception("API Error")
-                
-                service.instructor_client.chat.completions.create = mock_create_error
+                # Use regular Mock since instructor create method is synchronous
+                service.instructor_client.chat.completions.create = Mock(side_effect=Exception("API Error"))
 
                 messages = [{"role": "user", "content": "Test API Error"}]
                 with pytest.raises(Exception, match="API Error"):
@@ -398,11 +388,8 @@ class TestAzureOpenAIServiceStructuredOutput:
                     mock_response._raw_response.usage.prompt_tokens = 30
                     mock_response._raw_response.usage.completion_tokens = 15
                     
-                    # Create an explicit async function that returns the mock response
-                    async def mock_create_success(*args, **kwargs):
-                        return mock_response
-                    
-                    service.instructor_client.chat.completions.create = mock_create_success
+                    # Use regular Mock since instructor create method is synchronous
+                    service.instructor_client.chat.completions.create = Mock(return_value=mock_response)
 
                     system_prompt = "System message for prompt"
                     user_prompt = "User message for prompt with {var}"
@@ -419,6 +406,12 @@ class TestAzureOpenAIServiceStructuredOutput:
                     assert result.name == "prompt_test"
                     assert result.value == 123
                     
+                    service.instructor_client.chat.completions.create.assert_called_once()
+                    call_args = service.instructor_client.chat.completions.create.call_args[1]
+                    assert call_args['messages'] == [
+                        {"role": "system", "content": "System message for prompt"},
+                        {"role": "user", "content": "User message for prompt with data"}
+                    ]
                     mock_token_client.report_usage.assert_called_once_with(
                         request_id="req_prompt_123", 
                         prompt_tokens=30, 
@@ -449,11 +442,8 @@ class TestAzureOpenAIServiceStructuredOutput:
                         }
                     ])
                     
-                    # Create an explicit async function that raises a ValidationError
-                    async def mock_create_validation_error(*args, **kwargs):
-                        raise validation_error
-                    
-                    service.instructor_client.chat.completions.create = mock_create_validation_error
+                    # Use regular Mock since instructor create method is synchronous
+                    service.instructor_client.chat.completions.create = Mock(side_effect=validation_error)
                     
                     with pytest.raises(ValidationError):
                         await service.structured_prompt(
@@ -478,11 +468,8 @@ class TestAzureOpenAIServiceStructuredOutput:
                 with patch('common_new.retry_helpers.asyncio.sleep'): # Patch sleep
                     service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
                     
-                    # Create a simple async function (though it shouldn't be called)
-                    async def mock_create_not_called(*args, **kwargs):
-                        return _TestModel(name="should_not_be_called", value=999)
-                    
-                    service.instructor_client.chat.completions.create = mock_create_not_called
+                    # Use regular Mock since instructor create method is synchronous
+                    service.instructor_client.chat.completions.create = Mock(return_value=_TestModel(name="should_not_be_called", value=999))
                     
                     with pytest.raises(ValueError, match="Token limit exceeded"):
                          await service.structured_prompt(
@@ -492,9 +479,7 @@ class TestAzureOpenAIServiceStructuredOutput:
                         )
                     
                     mock_token_client.lock_tokens.assert_called_once()
-                    # Note: We can't easily assert that the mock function wasn't called 
-                    # since it's not a Mock object, but the test should pass if the 
-                    # token limit check prevents the API call
+                    service.instructor_client.chat.completions.create.assert_not_called()
 
 @pytest.mark.asyncio
 class TestAzureOpenAIServiceIntegration:
