@@ -9,6 +9,24 @@ from unittest.mock import AsyncMock, Mock, patch, mock_open
 from common_new.blob_storage import AsyncBlobStorageUploader
 
 
+class MockAsyncIterator:
+    """Mock async iterator for Azure Blob Storage containers."""
+    
+    def __init__(self, items):
+        self.items = items
+        self.index = 0
+    
+    def __aiter__(self):
+        return self
+    
+    async def __anext__(self):
+        if self.index >= len(self.items):
+            raise StopAsyncIteration
+        result = self.items[self.index]
+        self.index += 1
+        return result
+
+
 class TestAsyncBlobStorageUploaderInit:
     """Test AsyncBlobStorageUploader initialization."""
     
@@ -63,9 +81,15 @@ class TestAsyncBlobStorageUploaderInitialize:
         
         with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
             with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
-                mock_client = AsyncMock()
+                # Use regular Mock instead of AsyncMock for the client
+                mock_client = Mock()
                 mock_client_class.return_value = mock_client
-                mock_client.list_containers.return_value.__aiter__.return_value = [mock_container]
+                
+                # Set up async methods on the mock client
+                mock_client.close = AsyncMock()
+                
+                # Make list_containers return our async iterator directly (not as a coroutine)
+                mock_client.list_containers = Mock(return_value=MockAsyncIterator([mock_container]))
                 
                 result = await uploader.initialize()
                 
@@ -101,9 +125,15 @@ class TestAsyncBlobStorageUploaderInitialize:
         
         with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
             with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
-                mock_client = AsyncMock()
+                # Use regular Mock instead of AsyncMock for the client
+                mock_client = Mock()
                 mock_client_class.return_value = mock_client
-                mock_client.list_containers.return_value.__aiter__.return_value = []
+                
+                # Set up async methods on the mock client
+                mock_client.close = AsyncMock()
+                
+                # Make list_containers return empty async iterator
+                mock_client.list_containers = Mock(return_value=MockAsyncIterator([]))
                 
                 result = await uploader.initialize()
                 
