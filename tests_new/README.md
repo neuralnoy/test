@@ -10,7 +10,7 @@ The test suite is structured as follows:
 tests_new/
 ├── unittests/                          # Unit tests for common library components
 │   ├── __init__.py                     # Package initialization
-│   ├── test_azure_openai_service.py    # Azure OpenAI service tests (20 tests)
+│   ├── test_azure_openai_service.py    # Azure OpenAI service tests (21 tests)
 │   ├── test_blob_storage.py            # Azure Blob Storage tests (28 tests)
 │   ├── test_log_monitor.py             # Log monitoring service tests (21 tests)
 │   ├── test_logger.py                  # Logger module tests (23 tests)
@@ -21,7 +21,7 @@ tests_new/
 └── README.md                          # This documentation file
 ```
 
-**Total Unit Tests: 180 tests across 7 modules**
+**Total Unit Tests: 181 tests across 7 modules**
 
 ## Quick Start
 
@@ -58,32 +58,57 @@ pytest tests_new/unittests/test_token_client.py::TestTokenClient::test_init_succ
 
 ## Detailed Test Coverage
 
-### 1. test_azure_openai_service.py (20 tests)
+### 1. test_azure_openai_service.py (21 tests)
 
-Tests the Azure OpenAI service integration with comprehensive mocking of the OpenAI SDK.
+Tests the Azure OpenAI service integration with comprehensive mocking of the instructor library and Azure OpenAI SDK.
+
+**Test Classes:**
+- `TestAzureOpenAIServiceInit` (3 tests): Service initialization and configuration
+- `TestAzureOpenAIServiceTokenCounting` (5 tests): Token estimation and counting mechanisms
+- `TestAzureOpenAIServicePromptFormatting` (4 tests): Prompt formatting with variables and examples
+- `TestAzureOpenAIServiceStructuredOutput` (7 tests): Structured completion with Pydantic models
+- `TestAzureOpenAIServiceIntegration` (2 tests): End-to-end service lifecycle testing
 
 **Key Test Categories:**
-- Service initialization and configuration
-- Token counting for different message types
-- Chat completions with various parameters
-- Structured outputs with Pydantic models
-- Embeddings generation
-- Error handling and retry scenarios
+- **Service Initialization**: Environment variable configuration, custom model settings, missing configuration handling
+- **Token Management**: Accurate token counting for messages, model-specific encoding, estimation with overhead
+- **Prompt Formatting**: Variable substitution, few-shot examples, error handling for missing variables
+- **Structured Completions**: Pydantic model validation, error handling, token limit enforcement
+- **Integration**: Full service lifecycle, token client interactions, retry mechanisms
 
 **Notable Features:**
-- Complete OpenAI SDK mocking
-- Pydantic model validation testing
-- Token counting accuracy verification
-- Multiple message format support
+- **Cross-Platform Compatibility**: Uses regular `Mock` objects for synchronous instructor library methods
+- **Comprehensive Error Handling**: Tests for validation errors, API errors, token limit exceeded scenarios
+- **Token Usage Tracking**: Validates proper token locking, usage reporting, and cleanup
+- **Instructor Library Integration**: Properly mocks the synchronous instructor interface
+- **Retry Logic Testing**: Validates retry mechanisms for rate limiting and token availability
+
+**Async Test Patterns:**
+All structured output tests are properly marked with `@pytest.mark.asyncio` and handle async/await patterns correctly while mocking synchronous instructor methods.
 
 **Example Tests:**
 ```bash
-# Test chat completions
-pytest tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIService::test_chat_completion_success -v
+# Test service initialization
+pytest tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIServiceInit::test_init_with_env_vars -v
 
-# Test structured outputs
-pytest tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIService::test_structured_output_success -v
+# Test token counting accuracy
+pytest tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIServiceTokenCounting::test_estimate_token_count -v
+
+# Test prompt formatting
+pytest tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIServicePromptFormatting::test_format_prompt_with_variables_and_examples -v
+
+# Test structured completions
+pytest tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIServiceStructuredOutput::test_structured_completion_success -v
+
+# Test error handling
+pytest tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIServiceStructuredOutput::test_structured_completion_validation_error -v
 ```
+
+**Mock Strategy:**
+- **TokenClient**: Full async mock with token locking, usage reporting, and status retrieval
+- **Instructor Library**: Synchronous mocks for `chat.completions.create` method
+- **Environment Variables**: Comprehensive mocking of Azure OpenAI configuration
+- **Pydantic Models**: Custom test models with validation scenarios
 
 ### 2. test_blob_storage.py (28 tests)
 
@@ -381,26 +406,27 @@ def test_example():
 When running the full test suite, you should see output similar to:
 
 ```
-tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIService::test_init_success PASSED [  1%]
-tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIService::test_count_tokens_simple_message PASSED [  2%]
+tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIServiceInit::test_init_with_env_vars PASSED [  1%]
+tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIServiceTokenCounting::test_estimate_token_count PASSED [  2%]
+tests_new/unittests/test_azure_openai_service.py::TestAzureOpenAIServiceStructuredOutput::test_structured_completion_success PASSED [  3%]
 ...
 tests_new/unittests/test_token_client.py::TestTokenClient::test_full_lifecycle PASSED [ 100%]
 
-==================== 180 passed in 2.45s ====================
+==================== 181 passed in 2.45s ====================
 
 Coverage Report:
 Name                                Stmts   Miss  Cover   Missing
 -----------------------------------------------------------------
 common_new/__init__.py                 0      0   100%
-common_new/azure_openai_service.py    125     5    96%   45-47
-common_new/blob_storage.py            180     8    96%   156-158, 201-203
-common_new/log_monitor.py             95      3    97%   78-80
-common_new/logger.py                  78      2    97%   45-46
-common_new/retry_helpers.py           110     4    96%   89-91, 156
-common_new/service_bus.py             140     6    96%   178-180, 245-247
-common_new/token_client.py            85      3    96%   67-69
+common_new/azure_openai_service.py    104     4    96%   104, 109-111
+common_new/blob_storage.py            138     8    94%   156-158, 201-203
+common_new/log_monitor.py             170     3    98%   78-80
+common_new/logger.py                  134     2    99%   45-46
+common_new/retry_helpers.py           49      4    92%   89-91, 156
+common_new/service_bus.py             128     6    95%   178-180, 245-247
+common_new/token_client.py            71      3    96%   67-69
 -----------------------------------------------------------------
-TOTAL                                 813     31    96%
+TOTAL                                 794     30    96%
 ```
 
 ## Troubleshooting
