@@ -330,13 +330,16 @@ class TestAzureOpenAIServiceStructuredOutput:
             with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
                 service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
                 
+                # Mock the create method BEFORE the call and use AsyncMock
+                service.instructor_client.chat.completions.create = AsyncMock()
+
                 messages = [{"role": "user", "content": "Generate test data"}]
                 with pytest.raises(ValueError, match="Token limit exceeded"):
                     await service.structured_completion(_TestModel, messages)
                 
                 mock_token_client.lock_tokens.assert_called_once()
                 mock_token_client.release_tokens.assert_not_called() # Tokens not locked, so not released
-                service.instructor_client.chat.completions.create = Mock() 
+                # Assert on the mock that was active during the service call
                 service.instructor_client.chat.completions.create.assert_not_called() # API should not be called
 
     async def test_structured_completion_api_error(self):
