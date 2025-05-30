@@ -154,6 +154,96 @@ class TestAzureOpenAIServiceTokenCounting:
                     # 3 base + 2 messages * (3 content + 4 metadata) + 100 completion = 117
                     assert estimated == 117
 
+class TestAzureOpenAIServicePromptFormatting:
+    """Test prompt formatting functionality."""
+
+    def test_format_prompt_with_variables(self):
+        """Test formatting prompt with variable substitution."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(app_id="test-app")
+                system_prompt = "System message"
+                user_prompt_template = "User message with {variable}"
+                variables = {"variable": "value"}
+                
+                messages = service.format_prompt(system_prompt, user_prompt_template, variables)
+                
+                assert messages == [
+                    {"role": "system", "content": "System message"},
+                    {"role": "user", "content": "User message with value"}
+                ]
+
+    def test_format_prompt_with_examples(self):
+        """Test formatting prompt with few-shot examples."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(app_id="test-app")
+                system_prompt = "System message"
+                user_prompt = "User message"
+                examples = [
+                    {"role": "user", "content": "Example user 1"},
+                    {"role": "assistant", "content": "Example assistant 1"}
+                ]
+                
+                messages = service.format_prompt(system_prompt, user_prompt, examples=examples)
+                
+                assert messages == [
+                    {"role": "system", "content": "System message"},
+                    {"role": "user", "content": "Example user 1"},
+                    {"role": "assistant", "content": "Example assistant 1"},
+                    {"role": "user", "content": "User message"}
+                ]
+
+    def test_format_prompt_with_variables_and_examples(self):
+        """Test formatting prompt with both variables and examples."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(app_id="test-app")
+                system_prompt = "System message"
+                user_prompt_template = "User message with {variable}"
+                variables = {"variable": "value"}
+                examples = [
+                    {"role": "user", "content": "Example user 1"},
+                    {"role": "assistant", "content": "Example assistant 1"}
+                ]
+                
+                messages = service.format_prompt(system_prompt, user_prompt_template, variables, examples)
+                
+                assert messages == [
+                    {"role": "system", "content": "System message"},
+                    {"role": "user", "content": "Example user 1"},
+                    {"role": "assistant", "content": "Example assistant 1"},
+                    {"role": "user", "content": "User message with value"}
+                ]
+
+    def test_format_prompt_missing_variable(self):
+        """Test formatting prompt raises ValueError for missing template variable."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(app_id="test-app")
+                system_prompt = "System message"
+                user_prompt_template = "User message with {variable} and {another_variable}"
+                variables = {"variable": "value"} # Missing 'another_variable'
+                
+                with pytest.raises(ValueError, match="Missing template variable: 'another_variable'"):
+                    service.format_prompt(system_prompt, user_prompt_template, variables)
+
 @pytest.mark.asyncio
 class TestAzureOpenAIServiceStructuredOutput:
     """Test structured output functionality."""
@@ -179,7 +269,7 @@ class TestAzureOpenAIServiceStructuredOutput:
                 mock_response._raw_response.usage.prompt_tokens = 20
                 mock_response._raw_response.usage.completion_tokens = 10
                 
-                service.instructor_client.chat.completions.create = Mock(return_value=mock_response)
+                service.instructor_client.chat.completions.create = AsyncMock(return_value=mock_response)
                 
                 messages = [{"role": "user", "content": "Generate test data"}]
                 result = await service.structured_completion(_TestModel, messages)
@@ -227,6 +317,161 @@ class TestAzureOpenAIServiceStructuredOutput:
                 
                 mock_token_client.release_tokens.assert_called_once_with("req_123")
 
+    async def test_structured_completion_token_limit_exceeded(self):
+        """Test structured completion when token limit is exceeded."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.return_value = (False, "", "Token limit exceeded")
+            
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                
+                messages = [{"role": "user", "content": "Generate test data"}]
+                with pytest.raises(ValueError, match="Token limit exceeded"):
+                    await service.structured_completion(_TestModel, messages)
+                
+                mock_token_client.lock_tokens.assert_called_once()
+                mock_token_client.release_tokens.assert_not_called() # Tokens not locked, so not released
+                service.instructor_client.chat.completions.create = Mock() 
+                service.instructor_client.chat.completions.create.assert_not_called() # API should not be called
+
+    async def test_structured_completion_api_error(self):
+        """Test structured completion handles API errors and releases tokens."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.return_value = (True, "req_789", "")
+            mock_token_client.release_tokens.return_value = None
+
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+
+                service.instructor_client.chat.completions.create = AsyncMock(side_effect=Exception("API Error"))
+
+                messages = [{"role": "user", "content": "Test API Error"}]
+                with pytest.raises(Exception, match="API Error"):
+                    await service.structured_completion(_TestModel, messages)
+
+                mock_token_client.lock_tokens.assert_called_once()
+                mock_token_client.release_tokens.assert_called_once_with("req_789")
+
+    async def test_structured_prompt_success(self):
+        """Test successful structured prompt call."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.return_value = (True, "req_prompt_123", "")
+            mock_token_client.report_usage.return_value = None
+
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                with patch('common_new.retry_helpers.asyncio.sleep'): # Patch sleep to avoid delays
+                    service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+
+                    mock_response = _TestModel(name="prompt_test", value=123)
+                    mock_response._raw_response = Mock()
+                    mock_response._raw_response.usage = Mock()
+                    mock_response._raw_response.usage.prompt_tokens = 30
+                    mock_response._raw_response.usage.completion_tokens = 15
+                    
+                    service.instructor_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+                    system_prompt = "System message for prompt"
+                    user_prompt = "User message for prompt with {var}"
+                    variables = {"var": "data"}
+                    
+                    result = await service.structured_prompt(
+                        _TestModel, 
+                        system_prompt, 
+                        user_prompt, 
+                        variables=variables
+                    )
+
+                    assert isinstance(result, _TestModel)
+                    assert result.name == "prompt_test"
+                    assert result.value == 123
+                    
+                    service.instructor_client.chat.completions.create.assert_called_once()
+                    call_args = service.instructor_client.chat.completions.create.call_args[1]
+                    assert call_args['messages'] == [
+                        {"role": "system", "content": "System message for prompt"},
+                        {"role": "user", "content": "User message for prompt with data"}
+                    ]
+                    mock_token_client.report_usage.assert_called_once_with(
+                        request_id="req_prompt_123", 
+                        prompt_tokens=30, 
+                        completion_tokens=15
+                    )
+
+    async def test_structured_prompt_validation_error(self):
+        """Test structured prompt with validation error."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            mock_token_client = AsyncMock()
+            mock_token_client.lock_tokens.return_value = (True, "req_val_err", "")
+            mock_token_client.release_tokens.return_value = None
+            
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                with patch('common_new.retry_helpers.asyncio.sleep'): # Patch sleep
+                    service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                    
+                    validation_error = ValidationError.from_exception_data("_TestModel", [
+                        {
+                            'type': 'missing',
+                            'loc': ('name',),
+                            'msg': 'Field required',
+                            'input': {}
+                        }
+                    ])
+                    service.instructor_client.chat.completions.create = AsyncMock(side_effect=validation_error)
+                    
+                    with pytest.raises(ValidationError):
+                        await service.structured_prompt(
+                            _TestModel, 
+                            "System", 
+                            "User",
+                        )
+                    mock_token_client.release_tokens.assert_called_once_with("req_val_err")
+
+    async def test_structured_prompt_token_limit_exceeded(self):
+        """Test structured_prompt when token limit is initially exceeded."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            mock_token_client = AsyncMock()
+            # Simulate token lock failure, then success on retry (though retry logic is in decorator)
+            mock_token_client.lock_tokens.side_effect = [(False, "", "Token limit exceeded")]
+            
+            with patch('common_new.azure_openai_service.TokenClient', return_value=mock_token_client):
+                with patch('common_new.retry_helpers.asyncio.sleep'): # Patch sleep
+                    service = AzureOpenAIService(app_id="test-app", token_counter_url="http://localhost:8001")
+                    
+                    service.instructor_client.chat.completions.create = AsyncMock()
+                    
+                    with pytest.raises(ValueError, match="Token limit exceeded"):
+                         await service.structured_prompt(
+                            _TestModel, 
+                            "System", 
+                            "User"
+                        )
+                    
+                    mock_token_client.lock_tokens.assert_called_once()
+                    service.instructor_client.chat.completions.create.assert_not_called()
+
 @pytest.mark.asyncio
 class TestAzureOpenAIServiceIntegration:
     """Integration tests for AzureOpenAIService."""
@@ -269,4 +514,4 @@ class TestAzureOpenAIServiceIntegration:
                 messages = [{"role": "user", "content": "Hello"}]
                 
                 with pytest.raises(Exception, match="Token client error"):
-                    await service.chat_completion(messages) 
+                    await service.structured_completion(_TestModel, messages) 
