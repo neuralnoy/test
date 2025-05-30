@@ -1,10 +1,11 @@
 """
 Log file monitoring service that detects rotated log files and uploads them to Azure Blob Storage.
-Each process monitors its own log files independently.
+Each process monitors its own log files independently and cleans up orphaned files from dead processes.
 """
 import os
 import asyncio
 import time
+import psutil
 from pathlib import Path
 from typing import Optional, Set, List, Tuple
 from datetime import datetime
@@ -17,7 +18,7 @@ logger = get_logger("common")
 class LogMonitorService:
     """
     Service that periodically scans for rotated log files and uploads them to Azure Blob Storage.
-    Each process instance monitors its own log files independently.
+    Each process instance monitors its own log files independently and also cleans up orphaned files.
     """
     
     def __init__(
@@ -29,7 +30,8 @@ class LogMonitorService:
         app_name: Optional[str] = None,
         process_name: Optional[str] = None,
         retention_days: int = 30,
-        scan_interval: int = 60
+        scan_interval: int = 60,
+        enable_orphan_cleanup: bool = True
     ):
         self.logs_dir = logs_dir
         
@@ -46,6 +48,7 @@ class LogMonitorService:
         self.process_name = process_name or os.getenv('PROCESS_NAME', f"worker-{os.getpid()}")
         self.retention_days = retention_days
         self.scan_interval = scan_interval
+        self.enable_orphan_cleanup = enable_orphan_cleanup
         
         # State
         self.uploader = None
@@ -60,7 +63,7 @@ class LogMonitorService:
         if self._running:
             return True
             
-        logger.info(f"Process {os.getpid()} ({self.process_name}) initializing log monitor")
+        logger.info(f"Process {os.getpid()} ({self.process_name}) initializing log monitor (orphan_cleanup={self.enable_orphan_cleanup})")
         
         # Initialize blob storage if configured
         if not self.account_url:
@@ -88,6 +91,24 @@ class LogMonitorService:
         
         logger.info(f"Log monitor initialized for {self.process_name} - scanning {self.logs_dir} every {self.scan_interval}s")
         return True
+    
+    def _is_process_alive(self, pid: int) -> bool:
+        """Check if a process with given PID is still running."""
+        try:
+            return psutil.pid_exists(pid)
+        except Exception:
+            # If psutil fails, assume process is dead to be safe
+            return False
+    
+    def _extract_pid_from_process_name(self, process_name: str) -> Optional[int]:
+        """Extract PID from process name if it follows worker-{pid} pattern."""
+        try:
+            if process_name.startswith("worker-"):
+                pid_str = process_name.replace("worker-", "")
+                return int(pid_str)
+            return None
+        except (ValueError, AttributeError):
+            return None
     
     async def _monitor_loop(self) -> None:
         """Background task that periodically scans for rotated log files."""
@@ -149,6 +170,11 @@ class LogMonitorService:
                         log_files.append((file_path, stats.st_mtime))
                     except Exception as e:
                         logger.error(f"Error checking file {file_path}: {str(e)}")
+
+            # Also scan for orphaned files from dead processes
+            if self.enable_orphan_cleanup:
+                orphan_files = await self._scan_for_orphaned_logs(now)
+                log_files.extend(orphan_files)
             
             if not log_files:
                 logger.debug(f"No new rotated log files found for {self.process_name}")
@@ -171,6 +197,79 @@ class LogMonitorService:
                     
         except Exception as e:
             logger.error(f"Error scanning for rotated logs in {self.process_name}: {str(e)}")
+            
+    async def _scan_for_orphaned_logs(self, now: float) -> List[Tuple[str, float]]:
+        """Scan for orphaned log files from dead processes and return them for upload."""
+        orphan_files: List[Tuple[str, float]] = []
+        
+        try:
+            logger.debug(f"Scanning for orphaned log files from dead processes")
+            
+            app_prefix = f"{self.app_name}__"
+            
+            for filename in os.listdir(self.logs_dir):
+                # Look for files from this app but different processes
+                if (filename.startswith(app_prefix) and 
+                    filename.endswith(".log") and 
+                    "__" in filename):
+                    
+                    # Skip our own files
+                    if filename.startswith(f"{self.app_name}__{self.process_name}"):
+                        continue
+                    
+                    file_path = os.path.join(self.logs_dir, filename)
+                    
+                    # Skip already processed files
+                    if file_path in self._processed_files:
+                        continue
+                    
+                    # Extract process name from filename
+                    # Format: app__process__timestamp.log or app__process.log
+                    parts = filename.replace(f"{self.app_name}__", "").replace(".log", "").split("__")
+                    if len(parts) < 1:
+                        continue
+                        
+                    other_process_name = parts[0]
+                    
+                    # Check if this is a current log file (no timestamp part)
+                    is_current_log = len(parts) == 1
+                    
+                    # For current log files, check if the process is still alive
+                    if is_current_log:
+                        pid = self._extract_pid_from_process_name(other_process_name)
+                        if pid and self._is_process_alive(pid):
+                            continue  # Process is alive, skip its current log
+                        
+                        # Process is dead, but current log might still be rotated later
+                        # Check if it's old enough to be considered orphaned
+                        try:
+                            stats = os.stat(file_path)
+                            # Only consider current logs orphaned if not modified for 10 minutes
+                            if now - stats.st_mtime < 600:  # 10 minutes
+                                continue
+                        except Exception:
+                            continue
+                    
+                    # Check if file is ready for processing
+                    try:
+                        stats = os.stat(file_path)
+                        # Skip files being written to (modified in the last 60 seconds for orphans)
+                        if now - stats.st_mtime < 60:
+                            continue
+                            
+                        orphan_files.append((file_path, stats.st_mtime))
+                        logger.info(f"Found orphaned log file: {filename} (from process {other_process_name})")
+                        
+                    except Exception as e:
+                        logger.error(f"Error checking orphaned file {file_path}: {str(e)}")
+                        
+        except Exception as e:
+            logger.error(f"Error scanning for orphaned logs: {str(e)}")
+            
+        if orphan_files:
+            logger.info(f"Found {len(orphan_files)} orphaned log files to upload")
+            
+            return orphan_files
             
     async def shutdown(self) -> None:
         """Gracefully shut down the log monitor service."""
