@@ -174,7 +174,8 @@ class LogMonitorService:
             # Also scan for orphaned files from dead processes
             if self.enable_orphan_cleanup:
                 orphan_files = await self._scan_for_orphaned_logs(now)
-                log_files.extend(orphan_files)
+                if orphan_files:  # Safety check to ensure it's not None
+                    log_files.extend(orphan_files)
             
             if not log_files:
                 logger.debug(f"No new rotated log files found for {self.process_name}")
@@ -269,7 +270,7 @@ class LogMonitorService:
         if orphan_files:
             logger.info(f"Found {len(orphan_files)} orphaned log files to upload")
             
-            return orphan_files
+        return orphan_files
             
     async def shutdown(self) -> None:
         """Gracefully shut down the log monitor service."""
