@@ -393,8 +393,13 @@ class TestAsyncServiceBusHandlerListen:
         )
         
         mock_credential = AsyncMock()
-        mock_service_client = AsyncMock()
+        
+        # Use regular Mock for service client to avoid coroutine issues
+        mock_service_client = Mock()
         mock_receiver = AsyncMock()
+        
+        # Set up the service client to return our async mock receiver
+        mock_service_client.get_queue_receiver.return_value = mock_receiver
         
         call_count = 0
         async def side_effect(*args, **kwargs):
@@ -408,16 +413,25 @@ class TestAsyncServiceBusHandlerListen:
         
         mock_receiver.receive_messages.side_effect = side_effect
         
+        # Mock the async context managers
+        mock_service_client.__aenter__ = AsyncMock(return_value=mock_service_client)
+        mock_service_client.__aexit__ = AsyncMock(return_value=None)
+        mock_receiver.__aenter__ = AsyncMock(return_value=mock_receiver)
+        mock_receiver.__aexit__ = AsyncMock(return_value=None)
+        
+        # Mock the async close methods
+        mock_service_client.close = AsyncMock()
+        mock_credential.close = AsyncMock()
+        
         with patch('common_new.service_bus.DefaultAzureCredential', return_value=mock_credential):
             with patch('common_new.service_bus.ServiceBusClient', return_value=mock_service_client):
-                mock_service_client.get_queue_receiver.return_value = mock_receiver
-                
-                await handler.listen()
-                
-                processor_func.assert_not_called()
-                assert handler.total_processed_messages == 0
-                # Sleep time should increase when no messages
-                assert handler.sleep_seconds > 4
+                with patch('asyncio.sleep') as mock_sleep:  # Mock asyncio.sleep to prevent delays
+                    await handler.listen()
+                    
+                    processor_func.assert_not_called()
+                    assert handler.total_processed_messages == 0
+                    # Sleep time should increase when no messages
+                    assert handler.sleep_seconds > 4
     
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -461,8 +475,13 @@ class TestAsyncServiceBusHandlerListen:
         )
         
         mock_credential = AsyncMock()
-        mock_service_client = AsyncMock()
+        
+        # Use regular Mock for service client to avoid coroutine issues
+        mock_service_client = Mock()
         mock_receiver = AsyncMock()
+        
+        # Set up the service client to return our async mock receiver
+        mock_service_client.get_queue_receiver.return_value = mock_receiver
         
         # Create mock message
         mock_message = Mock()
@@ -480,17 +499,27 @@ class TestAsyncServiceBusHandlerListen:
                 return []
         
         mock_receiver.receive_messages.side_effect = side_effect
+        mock_receiver.complete_message.return_value = None
+        
+        # Mock the async context managers
+        mock_service_client.__aenter__ = AsyncMock(return_value=mock_service_client)
+        mock_service_client.__aexit__ = AsyncMock(return_value=None)
+        mock_receiver.__aenter__ = AsyncMock(return_value=mock_receiver)
+        mock_receiver.__aexit__ = AsyncMock(return_value=None)
+        
+        # Mock the async close methods
+        mock_service_client.close = AsyncMock()
+        mock_credential.close = AsyncMock()
         
         with patch('common_new.service_bus.DefaultAzureCredential', return_value=mock_credential):
             with patch('common_new.service_bus.ServiceBusClient', return_value=mock_service_client):
-                mock_service_client.get_queue_receiver.return_value = mock_receiver
-                
-                await handler.listen()
-                
-                # Message should still be completed even if processing fails
-                mock_receiver.complete_message.assert_called_with(mock_message)
-                # Total processed should still increment
-                assert handler.total_processed_messages == 1
+                with patch('asyncio.sleep') as mock_sleep:  # Mock asyncio.sleep to prevent delays
+                    await handler.listen()
+                    
+                    # Message should still be completed even if processing fails
+                    mock_receiver.complete_message.assert_called_with(mock_message)
+                    # Total processed should still increment
+                    assert handler.total_processed_messages == 1
     
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -505,8 +534,13 @@ class TestAsyncServiceBusHandlerListen:
         )
         
         mock_credential = AsyncMock()
-        mock_service_client = AsyncMock()
+        
+        # Use regular Mock for service client to avoid coroutine issues
+        mock_service_client = Mock()
         mock_receiver = AsyncMock()
+        
+        # Set up the service client to return our async mock receiver
+        mock_service_client.get_queue_receiver.return_value = mock_receiver
         
         # Create mock message
         mock_message = Mock()
@@ -527,15 +561,24 @@ class TestAsyncServiceBusHandlerListen:
         
         mock_receiver.receive_messages.side_effect = side_effect
         
+        # Mock the async context managers
+        mock_service_client.__aenter__ = AsyncMock(return_value=mock_service_client)
+        mock_service_client.__aexit__ = AsyncMock(return_value=None)
+        mock_receiver.__aenter__ = AsyncMock(return_value=mock_receiver)
+        mock_receiver.__aexit__ = AsyncMock(return_value=None)
+        
+        # Mock the async close methods
+        mock_service_client.close = AsyncMock()
+        mock_credential.close = AsyncMock()
+        
         with patch('common_new.service_bus.DefaultAzureCredential', return_value=mock_credential):
             with patch('common_new.service_bus.ServiceBusClient', return_value=mock_service_client):
-                mock_service_client.get_queue_receiver.return_value = mock_receiver
-                
-                await handler.listen()
-                
-                # Should continue processing despite completion failure
-                processor_func.assert_called_with("test content")
-                assert handler.total_processed_messages == 1
+                with patch('asyncio.sleep') as mock_sleep:  # Mock asyncio.sleep to prevent delays
+                    await handler.listen()
+                    
+                    # Should continue processing despite completion failure
+                    processor_func.assert_called_with("test content")
+                    assert handler.total_processed_messages == 1
 
 
 class TestAsyncServiceBusHandlerStop:
