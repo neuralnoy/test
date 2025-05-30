@@ -232,13 +232,26 @@ class TestAsyncServiceBusHandlerSendMessage:
         )
         
         mock_credential = AsyncMock()
-        mock_service_client = AsyncMock()
+        
+        # Use regular Mock for service client to avoid coroutine issues
+        mock_service_client = Mock()
         mock_sender = AsyncMock()
+        
+        # Set up the service client to return our async mock sender
+        mock_service_client.get_queue_sender.return_value = mock_sender
+        
+        # Mock the async context managers
+        mock_service_client.__aenter__ = AsyncMock(return_value=mock_service_client)
+        mock_service_client.__aexit__ = AsyncMock(return_value=None)
+        mock_sender.__aenter__ = AsyncMock(return_value=mock_sender)
+        mock_sender.__aexit__ = AsyncMock(return_value=None)
+        
+        # Mock the async close methods
+        mock_service_client.close = AsyncMock()
+        mock_credential.close = AsyncMock()
         
         with patch('common_new.service_bus.DefaultAzureCredential', return_value=mock_credential):
             with patch('common_new.service_bus.ServiceBusClient', return_value=mock_service_client):
-                mock_service_client.get_queue_sender.return_value = mock_sender
-                
                 result = await handler.send_message("test message")
                 
                 assert result is True
@@ -259,22 +272,40 @@ class TestAsyncServiceBusHandlerSendMessage:
         )
         
         mock_credential = AsyncMock()
-        mock_service_client = AsyncMock()
+        
+        # Use regular Mock for service client to avoid coroutine issues
+        mock_service_client = Mock()
         mock_sender = AsyncMock()
+        
+        # Set up the service client to return our async mock sender
+        mock_service_client.get_queue_sender.return_value = mock_sender
         
         test_dict = {"key": "value", "number": 42}
         
+        # Mock the async context managers
+        mock_service_client.__aenter__ = AsyncMock(return_value=mock_service_client)
+        mock_service_client.__aexit__ = AsyncMock(return_value=None)
+        mock_sender.__aenter__ = AsyncMock(return_value=mock_sender)
+        mock_sender.__aexit__ = AsyncMock(return_value=None)
+        
+        # Mock the async close methods
+        mock_service_client.close = AsyncMock()
+        mock_credential.close = AsyncMock()
+        
         with patch('common_new.service_bus.DefaultAzureCredential', return_value=mock_credential):
             with patch('common_new.service_bus.ServiceBusClient', return_value=mock_service_client):
-                mock_service_client.get_queue_sender.return_value = mock_sender
-                
-                result = await handler.send_message(test_dict)
-                
-                assert result is True
-                mock_sender.send_messages.assert_called_once()
-                # Verify JSON serialization was used
-                call_args = mock_sender.send_messages.call_args[0][0]
-                assert json.loads(call_args.body) == test_dict
+                with patch('common_new.service_bus.ServiceBusMessage') as mock_message_class:
+                    # Create a mock message instance with the JSON content
+                    mock_message = Mock()
+                    mock_message.body = json.dumps(test_dict)
+                    mock_message_class.return_value = mock_message
+                    
+                    result = await handler.send_message(test_dict)
+                    
+                    assert result is True
+                    mock_sender.send_messages.assert_called_once()
+                    # Verify JSON serialization was used by checking the ServiceBusMessage call
+                    mock_message_class.assert_called_once_with(json.dumps(test_dict))
     
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -288,14 +319,27 @@ class TestAsyncServiceBusHandlerSendMessage:
         )
         
         mock_credential = AsyncMock()
-        mock_service_client = AsyncMock()
+        
+        # Use regular Mock for service client to avoid coroutine issues
+        mock_service_client = Mock()
         mock_sender = AsyncMock()
         mock_sender.send_messages.side_effect = Exception("Send failed")
         
+        # Set up the service client to return our async mock sender
+        mock_service_client.get_queue_sender.return_value = mock_sender
+        
+        # Mock the async context managers
+        mock_service_client.__aenter__ = AsyncMock(return_value=mock_service_client)
+        mock_service_client.__aexit__ = AsyncMock(return_value=None)
+        mock_sender.__aenter__ = AsyncMock(return_value=mock_sender)
+        mock_sender.__aexit__ = AsyncMock(return_value=None)
+        
+        # Mock the async close methods
+        mock_service_client.close = AsyncMock()
+        mock_credential.close = AsyncMock()
+        
         with patch('common_new.service_bus.DefaultAzureCredential', return_value=mock_credential):
             with patch('common_new.service_bus.ServiceBusClient', return_value=mock_service_client):
-                mock_service_client.get_queue_sender.return_value = mock_sender
-                
                 result = await handler.send_message("test message")
                 
                 assert result is False
@@ -637,8 +681,13 @@ class TestAsyncServiceBusHandlerIntegration:
         initial_sleep = handler.sleep_seconds
         
         mock_credential = AsyncMock()
-        mock_service_client = AsyncMock()
+        
+        # Use regular Mock for service client to avoid coroutine issues
+        mock_service_client = Mock()
         mock_receiver = AsyncMock()
+        
+        # Set up the service client to return our async mock receiver
+        mock_service_client.get_queue_receiver.return_value = mock_receiver
         
         # Create mock message
         mock_message = Mock()
@@ -650,19 +699,34 @@ class TestAsyncServiceBusHandlerIntegration:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return [mock_message]  # First call has messages
+                return [mock_message]  # First call has messages (sleep resets to 1)
             elif call_count == 2:
-                return []  # Second call has no messages
+                return []  # Second call has no messages (sleep goes to 2)
+            elif call_count == 3:
+                return []  # Third call has no messages (sleep goes to 3)
+            elif call_count == 4:
+                return []  # Fourth call has no messages (sleep goes to 4)
+            elif call_count == 5:
+                return []  # Fifth call has no messages (sleep goes to 5, now > initial_sleep)
             else:
                 handler.running = False
                 return []
         
         mock_receiver.receive_messages.side_effect = side_effect
+        mock_receiver.complete_message.return_value = None
+        
+        # Mock the async context managers
+        mock_service_client.__aenter__ = AsyncMock(return_value=mock_service_client)
+        mock_service_client.__aexit__ = AsyncMock(return_value=None)
+        mock_receiver.__aenter__ = AsyncMock(return_value=mock_receiver)
+        mock_receiver.__aexit__ = AsyncMock(return_value=None)
+        
+        # Mock the async close methods
+        mock_service_client.close = AsyncMock()
+        mock_credential.close = AsyncMock()
         
         with patch('common_new.service_bus.DefaultAzureCredential', return_value=mock_credential):
             with patch('common_new.service_bus.ServiceBusClient', return_value=mock_service_client):
-                mock_service_client.get_queue_receiver.return_value = mock_receiver
-                
                 with patch('asyncio.sleep') as mock_sleep:
                     await handler.listen()
                     
