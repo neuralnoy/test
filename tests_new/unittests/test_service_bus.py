@@ -147,6 +147,12 @@ class TestAsyncServiceBusHandlerProcessMessage:
     @pytest.mark.unit
     async def test_process_message_decode_error(self):
         """Test message processing with decode error."""
+        
+        # Create a custom bytes-like class that raises decode error
+        class BadBytes(bytes):
+            def decode(self, *args, **kwargs):
+                raise UnicodeDecodeError("utf-8", b"", 0, 1, "invalid")
+        
         processor_func = AsyncMock()
         handler = AsyncServiceBusHandler(
             processor_function=processor_func,
@@ -155,15 +161,18 @@ class TestAsyncServiceBusHandlerProcessMessage:
             fully_qualified_namespace="test.servicebus.windows.net"
         )
         
-        mock_message = Mock()
-        mock_message.message_id = "test-message-123"
-        # Mock body that raises exception during decode
-        mock_message.body = Mock()
-        mock_message.body.decode.side_effect = UnicodeDecodeError("utf-8", b"", 0, 1, "invalid")
-        
-        await handler.process_message(mock_message)
-        
-        processor_func.assert_not_called()
+        # Mock the send_message method to prevent real Azure connections
+        with patch.object(handler, 'send_message', new_callable=AsyncMock) as mock_send:
+            mock_message = Mock()
+            mock_message.message_id = "test-message-123"
+            
+            # Use our custom bytes class that will raise decode error
+            mock_message.body = BadBytes(b"\xff\xfe")  # Invalid UTF-8 sequence
+            
+            await handler.process_message(mock_message)
+            
+            processor_func.assert_not_called()
+            mock_send.assert_not_called()
     
     @pytest.mark.asyncio
     @pytest.mark.unit
