@@ -2,7 +2,7 @@ import os
 import asyncio
 from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
-from common_new.logger import get_logger, shutdown_logging
+from common_new.logger import get_logger
 from app_counter.services.token_counter import TokenCounter
 from app_counter.services.rate_counter import RateCounter
 from app_counter.models.schemas import (
@@ -81,9 +81,6 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, "log_monitor"):
         logger.info("Shutting down log monitor service")
         await app.state.log_monitor.shutdown()
-    
-    # Shutdown logging service to release file locks
-    shutdown_logging()
 
 app = FastAPI(title="OpenAI Token Counter", lifespan=lifespan)
 

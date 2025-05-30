@@ -121,15 +121,16 @@ class LogMonitorService:
                 return
                 
             # Pattern to match this process's rotated log files
-            # Example: myapp_worker-123_2024-01-15.log
-            process_log_prefix = f"{self.app_name}_{self.process_name}_"
+            # Example: myapp__worker-123__2024-01-15.log
+            process_log_prefix = f"{self.app_name}__{self.process_name}__"
+            current_log_suffix = f"{self.app_name}__{self.process_name}.log"
             
             # Scan for rotated log files belonging to this process
             for filename in os.listdir(self.logs_dir):
                 if (filename.startswith(process_log_prefix) and 
                     filename.endswith(".log") and 
-                    "_" in filename and 
-                    not filename.endswith(f"{self.process_name}.log")):  # Skip current log file
+                    "__" in filename and 
+                    filename != current_log_suffix):  # Skip current log file
                     
                     file_path = os.path.join(self.logs_dir, filename)
                     

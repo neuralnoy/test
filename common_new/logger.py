@@ -62,7 +62,7 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
             os.makedirs(logs_dir, exist_ok=True)
             
             # Create process-specific log file with rotation
-            log_filename = f"{app_name}_{process_name}.log"
+            log_filename = f"{app_name}__{process_name}.log"
             file_path = os.path.join(logs_dir, log_filename)
             
             file_handler = TimedRotatingFileHandler(
@@ -74,7 +74,8 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
             )
             
             # Set custom naming pattern for rotated files
-            file_handler.namer = lambda name: name.replace('.log', '') + '_' + name.split('.')[-1] + '.log'
+            # Use double underscore to separate timestamp from process name
+            file_handler.namer = lambda name: name.replace('.log', '') + '__' + name.split('.')[-1] + '.log'
             file_handler.setFormatter(formatter)
             
             root_logger.addHandler(file_handler)
