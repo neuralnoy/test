@@ -19,7 +19,7 @@ class AsyncBlobStorageUploader:
         self,
         account_url: str,
         container_name: str,
-        max_retries: int = 16,
+        max_retries: int = 5,
         retry_delay: float = 2.0
     ):
         """
