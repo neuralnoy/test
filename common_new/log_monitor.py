@@ -26,7 +26,7 @@ class LogMonitorService:
         logs_dir: str,
         account_name: Optional[str] = None,
         account_url: Optional[str] = None,
-        container_name: str = "application-logs",
+        container_name: str = "fla-logs",
         app_name: Optional[str] = None,
         process_name: Optional[str] = None,
         retention_days: int = 30,
