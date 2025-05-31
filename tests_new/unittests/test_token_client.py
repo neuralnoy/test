@@ -16,13 +16,15 @@ class TestTokenClientInit:
     def test_init_with_defaults(self):
         """Test initialization with default base URL."""
         with patch.dict('os.environ', {'COUNTER_APP_BASE_URL': 'http://test.com'}):
-            # Reload the module to pick up the new environment variable
-            import importlib
-            from common_new import token_client
-            importlib.reload(token_client)
-            client = token_client.TokenClient(app_id="test_app")
-            assert client.app_id == "test_app"
-            assert client.base_url == "http://test.com"
+            # Mock load_dotenv to prevent loading from .env files
+            with patch('common_new.token_client.load_dotenv'):
+                # Reload the module to pick up the new environment variable
+                import importlib
+                from common_new import token_client
+                importlib.reload(token_client)
+                client = token_client.TokenClient(app_id="test_app")
+                assert client.app_id == "test_app"
+                assert client.base_url == "http://test.com"
     
     @pytest.mark.unit
     def test_init_with_custom_base_url(self):
@@ -41,25 +43,29 @@ class TestTokenClientInit:
     def test_init_with_base_url_not_set(self):
         """Test initialization when BASE_URL environment variable is not set."""
         with patch.dict('os.environ', {}, clear=True):
-            # Reload the module to pick up the cleared environment
-            import importlib
-            from common_new import token_client
-            importlib.reload(token_client)
-            client = token_client.TokenClient(app_id="test_app")
-            assert client.app_id == "test_app"
-            assert client.base_url == "None"  # str(None) when env var is not set
+            # Mock load_dotenv to prevent loading from .env files
+            with patch('common_new.token_client.load_dotenv'):
+                # Reload the module to pick up the cleared environment
+                import importlib
+                from common_new import token_client
+                importlib.reload(token_client)
+                client = token_client.TokenClient(app_id="test_app")
+                assert client.app_id == "test_app"
+                assert client.base_url == "None"  # str(None) when env var is not set
     
     @pytest.mark.unit
     def test_init_with_empty_base_url_env(self):
         """Test initialization when BASE_URL environment variable is empty."""
         with patch.dict('os.environ', {'COUNTER_APP_BASE_URL': ''}):
-            # Reload the module to pick up the new environment variable
-            import importlib
-            from common_new import token_client
-            importlib.reload(token_client)
-            client = token_client.TokenClient(app_id="test_app")
-            assert client.app_id == "test_app"
-            assert client.base_url == ""
+            # Mock load_dotenv to prevent loading from .env files
+            with patch('common_new.token_client.load_dotenv'):
+                # Reload the module to pick up the new environment variable
+                import importlib
+                from common_new import token_client
+                importlib.reload(token_client)
+                client = token_client.TokenClient(app_id="test_app")
+                assert client.app_id == "test_app"
+                assert client.base_url == ""
 
     @pytest.mark.unit
     def test_init_with_empty_app_id(self):
