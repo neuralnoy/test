@@ -35,6 +35,11 @@ tests_new/
 ```bash
 # Install test dependencies
 pip install -r test_requirements.txt
+
+# Key dependencies include:
+# - pytest & pytest-asyncio for async testing
+# - aioresponses for async HTTP client mocking (crucial for token_client tests)
+# - pytest-cov for coverage reporting
 ```
 
 ### Basic Test Execution
