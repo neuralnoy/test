@@ -142,16 +142,16 @@ class LogMonitorService:
                 return
                 
             # Pattern to match this process's rotated log files
-            # Example: myapp__worker-123__2024-01-15.log
-            process_log_prefix = f"{self.app_name}__{self.process_name}__"
-            current_log_suffix = f"{self.app_name}__{self.process_name}.log"
+            # Example: myapp-worker-123__2024-01-15.log
+            process_log_prefix = f"{self.app_name}-{self.process_name}__"
+            current_log_name = f"{self.app_name}-{self.process_name}.current.log"
             
             # Scan for rotated log files belonging to this process
             for filename in os.listdir(self.logs_dir):
                 if (filename.startswith(process_log_prefix) and 
                     filename.endswith(".log") and 
                     "__" in filename and 
-                    filename != current_log_suffix):  # Skip current log file
+                    filename != current_log_name):  # Skip current log file
                     
                     file_path = os.path.join(self.logs_dir, filename)
                     
@@ -206,16 +206,16 @@ class LogMonitorService:
         try:
             logger.debug(f"Scanning for orphaned log files from dead processes")
             
-            app_prefix = f"{self.app_name}__"
+            app_prefix = f"{self.app_name}-"
             
             for filename in os.listdir(self.logs_dir):
                 # Look for files from this app but different processes
                 if (filename.startswith(app_prefix) and 
-                    filename.endswith(".log") and 
-                    "__" in filename):
+                    filename.endswith(".log")):
                     
                     # Skip our own files
-                    if filename.startswith(f"{self.app_name}__{self.process_name}"):
+                    if (filename.startswith(f"{self.app_name}-{self.process_name}__") or 
+                        filename == f"{self.app_name}-{self.process_name}.current.log"):
                         continue
                     
                     file_path = os.path.join(self.logs_dir, filename)
@@ -224,16 +224,24 @@ class LogMonitorService:
                     if file_path in self._processed_files:
                         continue
                     
-                    # Extract process name from filename
-                    # Format: app__process__timestamp.log or app__process.log
-                    parts = filename.replace(f"{self.app_name}__", "").replace(".log", "").split("__")
-                    if len(parts) < 1:
-                        continue
-                        
-                    other_process_name = parts[0]
+                    # Determine file type and extract process name
+                    is_current_log = filename.endswith(".current.log")
+                    is_rotated_log = "__" in filename and not filename.endswith(".current.log")
                     
-                    # Check if this is a current log file (no timestamp part)
-                    is_current_log = len(parts) == 1
+                    if not (is_current_log or is_rotated_log):
+                        continue  # Unknown file type
+                    
+                    # Extract process name from filename
+                    if is_current_log:
+                        # Format: app-process.current.log
+                        base_name = filename.replace(f"{self.app_name}-", "").replace(".current.log", "")
+                        other_process_name = base_name
+                    elif is_rotated_log:
+                        # Format: app-process__date.log
+                        base_name = filename.replace(f"{self.app_name}-", "").split("__")[0]
+                        other_process_name = base_name
+                    else:
+                        continue
                     
                     # For current log files, check if the process is still alive
                     if is_current_log:
