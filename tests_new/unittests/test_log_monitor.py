@@ -28,7 +28,7 @@ class TestLogMonitorServiceInit:
         assert service.account_url == "https://test.blob.core.windows.net"
         assert service.container_name == "test-logs"
         assert service.app_name == "test-app"
-        assert service.retention_days == 30
+        assert service.retention_days == 7
         assert service.scan_interval == 60
         assert service.enable_orphan_cleanup is True
         assert not service._running
@@ -63,7 +63,7 @@ class TestLogMonitorServiceInit:
         assert service.account_url is None
         assert service.container_name == "fla-logs"  # Default value
         assert service.app_name == "test-app"
-        assert service.retention_days == 30
+        assert service.retention_days == 7
         assert service.scan_interval == 60
         assert service.enable_orphan_cleanup is True
 
@@ -76,7 +76,7 @@ class TestLogMonitorServiceInit:
             container_name="custom-logs",
             app_name="custom-app",
             process_name="custom-process",
-            retention_days=7,
+            retention_days=30,
             scan_interval=30,
             enable_orphan_cleanup=False
         )
@@ -86,7 +86,7 @@ class TestLogMonitorServiceInit:
         assert service.container_name == "custom-logs"
         assert service.app_name == "custom-app"
         assert service.process_name == "custom-process"
-        assert service.retention_days == 7
+        assert service.retention_days == 30
         assert service.scan_interval == 30
         assert service.enable_orphan_cleanup is False
 

@@ -29,7 +29,7 @@ class LogMonitorService:
         container_name: str = "fla-logs",
         app_name: Optional[str] = None,
         process_name: Optional[str] = None,
-        retention_days: int = 30,
+        retention_days: int = 7,
         scan_interval: int = 60,
         enable_orphan_cleanup: bool = True
     ):

@@ -1,0 +1,2 @@
+2025-05-31 23:13:07.851 | INFO | common | [MainProcess-41243] | [MainThread-8551128832] | logger.py:95 | Process 41243 (worker-41243) logging to /Users/arstep/Desktop/forms/logs/unknown_app-worker-41243.current.log
+2025-05-31 23:13:07.851 | WARNING | common | [MainProcess-41243] | [MainThread-8551128832] | logger.py:99 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
