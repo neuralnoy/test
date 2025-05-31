@@ -15,16 +15,18 @@ class TestTokenClientInit:
     @pytest.mark.unit
     def test_init_with_defaults(self):
         """Test initialization with default base URL."""
-        with patch.dict('os.environ', {'COUNTER_APP_BASE_URL': 'http://test.com'}):
-            # Mock load_dotenv to prevent loading from .env files
-            with patch('common_new.token_client.load_dotenv'):
-                # Reload the module to pick up the new environment variable
-                import importlib
-                from common_new import token_client
-                importlib.reload(token_client)
-                client = token_client.TokenClient(app_id="test_app")
-                assert client.app_id == "test_app"
-                assert client.base_url == "http://test.com"
+        # Mock os.getenv to return a test URL for COUNTER_APP_BASE_URL
+        with patch('common_new.token_client.os.getenv') as mock_getenv:
+            mock_getenv.return_value = "http://test.com"
+            # Reload the module to pick up the mocked environment
+            import importlib
+            from common_new import token_client
+            importlib.reload(token_client)
+            client = token_client.TokenClient(app_id="test_app")
+            assert client.app_id == "test_app"
+            assert client.base_url == "http://test.com"
+            # Verify that os.getenv was called with the right parameter
+            mock_getenv.assert_called_with("COUNTER_APP_BASE_URL")
     
     @pytest.mark.unit
     def test_init_with_custom_base_url(self):
@@ -42,31 +44,35 @@ class TestTokenClientInit:
     @pytest.mark.unit
     def test_init_with_base_url_not_set(self):
         """Test initialization when BASE_URL environment variable is not set."""
-        with patch.dict('os.environ', {}, clear=True):
-            # Mock load_dotenv to prevent loading from .env files
-            with patch('common_new.token_client.load_dotenv'):
-                # Reload the module to pick up the cleared environment
-                import importlib
-                from common_new import token_client
-                importlib.reload(token_client)
-                client = token_client.TokenClient(app_id="test_app")
-                assert client.app_id == "test_app"
-                assert client.base_url == "None"  # str(None) when env var is not set
+        # Mock os.getenv to return None for COUNTER_APP_BASE_URL
+        with patch('common_new.token_client.os.getenv') as mock_getenv:
+            mock_getenv.return_value = None
+            # Reload the module to pick up the mocked environment
+            import importlib
+            from common_new import token_client
+            importlib.reload(token_client)
+            client = token_client.TokenClient(app_id="test_app")
+            assert client.app_id == "test_app"
+            assert client.base_url == "None"  # str(None) when env var is not set
+            # Verify that os.getenv was called with the right parameter
+            mock_getenv.assert_called_with("COUNTER_APP_BASE_URL")
     
     @pytest.mark.unit
     def test_init_with_empty_base_url_env(self):
         """Test initialization when BASE_URL environment variable is empty."""
-        with patch.dict('os.environ', {'COUNTER_APP_BASE_URL': ''}):
-            # Mock load_dotenv to prevent loading from .env files
-            with patch('common_new.token_client.load_dotenv'):
-                # Reload the module to pick up the new environment variable
-                import importlib
-                from common_new import token_client
-                importlib.reload(token_client)
-                client = token_client.TokenClient(app_id="test_app")
-                assert client.app_id == "test_app"
-                assert client.base_url == ""
-
+        # Mock os.getenv to return empty string for COUNTER_APP_BASE_URL
+        with patch('common_new.token_client.os.getenv') as mock_getenv:
+            mock_getenv.return_value = ""
+            # Reload the module to pick up the mocked environment
+            import importlib
+            from common_new import token_client
+            importlib.reload(token_client)
+            client = token_client.TokenClient(app_id="test_app")
+            assert client.app_id == "test_app"
+            assert client.base_url == ""
+            # Verify that os.getenv was called with the right parameter
+            mock_getenv.assert_called_with("COUNTER_APP_BASE_URL")
+    
     @pytest.mark.unit
     def test_init_with_empty_app_id(self):
         """Test initialization with empty app_id."""
