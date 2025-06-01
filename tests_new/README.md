@@ -14,20 +14,20 @@ tests_new/
 │   ├── test_blob_storage.py            # Azure Blob Storage tests (33 tests)
 │   ├── test_log_monitor.py             # Log monitoring service tests (39 tests)
 │   ├── test_logger.py                  # Logger module tests (16 tests)
-│   ├── test_retry_helpers.py           # Retry helpers tests (37 tests)
-│   ├── test_service_bus.py             # Service Bus handler tests (26 tests)
-│   └── test_token_client.py            # Token client tests (37 tests) ✅ **100% COVERAGE**
+│   ├── test_retry_helpers.py           # Retry helpers tests (21 tests)
+│   ├── test_service_bus.py             # Service Bus handler tests (21 tests)
+│   └── test_token_client.py            # Token client tests (37 tests)
 ├── integrationtests/                   # Integration tests for full app functionality
 └── README.md                          # This documentation file
 ```
 
-**Total Unit Tests: 209 tests across 7 modules**
+**Total Unit Tests: 188 tests across 7 modules**
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.8+ (current version is 3.13.2)
 - Test dependencies installed
 
 ### Installation
@@ -40,6 +40,9 @@ pip install -r test_requirements.txt
 # - pytest & pytest-asyncio for async testing
 # - aioresponses for async HTTP client mocking (crucial for token_client tests)
 # - pytest-cov for coverage reporting
+# - pytest-mock for enhanced mocking capabilities
+# - httpx for HTTP client testing
+# - coverage for code coverage analysis
 ```
 
 ### Basic Test Execution
@@ -55,10 +58,10 @@ pytest tests_new/unittests/ -v --cov=common_new --cov-report=html --cov-report=t
 pytest tests_new/unittests/test_azure_openai_service.py -v
 
 # Run a specific test class
-pytest tests_new/unittests/test_retry_helpers.py::TestRetryDecorator -v
+pytest tests_new/unittests/test_retry_helpers.py::TestWithTokenLimitRetry -v
 
 # Run a specific test method
-pytest tests_new/unittests/test_token_client.py::TestTokenClient::test_init_success -v
+pytest tests_new/unittests/test_token_client.py::TestTokenClient::test_init_with_defaults -v
 ```
 
 ## Detailed Test Coverage
@@ -71,7 +74,7 @@ Tests the Azure OpenAI service integration with comprehensive mocking of the ins
 - `TestAzureOpenAIServiceInit` (3 tests): Service initialization and configuration
 - `TestAzureOpenAIServiceTokenCounting` (5 tests): Token estimation and counting mechanisms
 - `TestAzureOpenAIServicePromptFormatting` (4 tests): Prompt formatting with variables and examples
-- `TestAzureOpenAIServiceStructuredOutput` (7 tests): Structured completion with Pydantic models
+- `TestAzureOpenAIServiceStructuredOutput` (8 tests): Structured completion with Pydantic models
 - `TestAzureOpenAIServiceIntegration` (2 tests): End-to-end service lifecycle testing
 
 **Key Test Categories:**
@@ -635,59 +638,202 @@ pytest tests_new/unittests/test_logger.py::TestRaceConditionsAndCorruption::test
 - **File System Error Handling**: Permission failures, disk space, and lock conflict testing
 - **Production Deployment Patterns**: Real-world distributed system scenario coverage
 
-### 5. test_retry_helpers.py (37 tests)
+### 5. test_retry_helpers.py (21 tests)
 
-Tests retry mechanisms and intelligent backoff strategies with extensive decorator testing.
+Tests retry mechanisms and intelligent backoff strategies with extensive decorator testing and comprehensive error handling scenarios.
+
+**Test Classes:**
+- `TestWithTokenLimitRetry` (11 tests): Core retry logic with token client integration
+- `TestWithTokenLimitRetryDecorator` (8 tests): Decorator functionality and metadata preservation  
+- `TestRetryHelperIntegration` (2 tests): Integration testing with multiple retry scenarios
+
+**🎯 COMPREHENSIVE FUNCTIONALITY COVERAGE:**
+
+#### **Core Retry Logic Testing (11 tests)**
+- **Successful Operations**: First attempt success, function arguments/kwargs handling
+- **Rate Limit Scenarios**: Token limit exceeded, API rate limit, general rate limit errors
+- **Retry Exhaustion**: Maximum retries exceeded with proper error propagation
+- **Error Classification**: Non-rate-limit ValueError immediate raise, non-ValueError immediate raise
+- **Token Client Integration**: Invalid status responses, missing reset time handling
+- **Boundary Conditions**: Last attempt behavior (no retry on final attempt)
+
+#### **Decorator Pattern Testing (8 tests)**
+- **Function Wrapping**: Successful calls with argument preservation
+- **Retry Integration**: Proper retry behavior when decorated functions fail
+- **Metadata Preservation**: Function name, docstring, and signature preservation
+- **Configuration**: Custom max_retries parameter handling
+
+#### **Integration & Advanced Scenarios (2 tests)**
+- **Multiple Consecutive Retries**: Complex retry chains with different error types
+- **Wait Time Calculation**: Exponential backoff and token client status integration
 
 **Key Test Categories:**
-- Retry decorator functionality
-- Token client integration
-- Wait time calculations
-- Error handling scenarios
-- Rate limit management
-- Exponential backoff logic
+- **Retry Decorator Functionality**: Function wrapping, metadata preservation, parameter passing
+- **Token Client Integration**: Status retrieval, reset time handling, error classification
+- **Wait Time Calculations**: Exponential backoff algorithms, sleep timing verification
+- **Error Handling Scenarios**: Rate limit vs non-rate-limit error classification
+- **Rate Limit Management**: Token limits, API limits, general rate limiting
+- **Exponential Backoff Logic**: Sleep duration calculations, retry interval management
+
+**🔧 TECHNICAL IMPLEMENTATION INSIGHTS:**
+
+#### **Rate Limit Detection Patterns**
+- **Token Limit Errors**: "Token limit would be exceeded" detection
+- **API Rate Limits**: "API Rate limit would be exceeded" detection  
+- **General Rate Limits**: "Rate limit would be exceeded" detection
+- **Error Classification**: ValueError vs other exception types
+
+#### **Token Client Integration**
+- **Status Retrieval**: get_status() method mocking and response validation
+- **Reset Time Handling**: reset_time_seconds extraction and wait calculation
+- **Invalid Responses**: None responses, missing fields, malformed data
+
+#### **Decorator Implementation**
+- **Function Wrapping**: functools.wraps() usage for metadata preservation
+- **Async Support**: Proper async/await pattern handling in decorators
+- **Parameter Handling**: *args, **kwargs preservation through retry cycles
 
 **Notable Features:**
-- Comprehensive decorator testing
-- Token client interaction simulation
-- Rate limit scenario handling
-- Backoff calculation verification
+- **Comprehensive Decorator Testing**: Function metadata preservation and parameter handling
+- **Token Client Interaction Simulation**: Mock status responses and error conditions
+- **Rate Limit Scenario Handling**: Multiple rate limit error types and responses
+- **Backoff Calculation Verification**: Wait time algorithms and sleep duration testing
+- **Error Classification Logic**: Proper handling of different exception types
+- **Integration Testing**: End-to-end retry scenarios with realistic conditions
 
 **Example Tests:**
 ```bash
-# Test retry decorator
-pytest tests_new/unittests/test_retry_helpers.py::TestRetryDecorator::test_retry_success_first_attempt -v
+# Test core retry functionality
+pytest tests_new/unittests/test_retry_helpers.py::TestWithTokenLimitRetry::test_successful_first_attempt -v
 
 # Test rate limit handling
-pytest tests_new/unittests/test_retry_helpers.py::TestRetryDecorator::test_retry_with_rate_limit_wait -v
+pytest tests_new/unittests/test_retry_helpers.py::TestWithTokenLimitRetry::test_token_limit_retry_success -v
+
+# Test decorator functionality
+pytest tests_new/unittests/test_retry_helpers.py::TestWithTokenLimitRetryDecorator::test_decorator_successful_call -v
+
+# Test error scenarios
+pytest tests_new/unittests/test_retry_helpers.py::TestWithTokenLimitRetry::test_max_retries_exceeded -v
+
+# Test integration scenarios
+pytest tests_new/unittests/test_retry_helpers.py::TestRetryHelperIntegration::test_multiple_consecutive_retries -v
 ```
 
-### 6. test_service_bus.py (26 tests)
+**Mock Strategy:**
+- **Token Client Mocking**: AsyncMock with get_status() method simulation
+- **Function Mocking**: AsyncMock for retry target functions with side effects
+- **Error Simulation**: ValueError with different rate limit messages
+- **Status Response Mocking**: Comprehensive token client status scenarios
 
-Tests Azure Service Bus operations with comprehensive message handling scenarios.
+### 6. test_service_bus.py (21 tests)
+
+Tests Azure Service Bus operations with comprehensive message handling scenarios and extensive error handling.
+
+**Test Classes:**
+- `TestAsyncServiceBusHandlerInit` (2 tests): Handler initialization and configuration
+- `TestAsyncServiceBusHandlerProcessMessage` (7 tests): Message processing with various data types and error scenarios
+- `TestAsyncServiceBusHandlerSendMessage` (4 tests): Message sending operations with different formats and error handling
+- `TestAsyncServiceBusHandlerListen` (6 tests): Message listening loop with connection management and error recovery
+- `TestAsyncServiceBusHandlerStop` (2 tests): Handler lifecycle management and graceful shutdown
+
+**🎯 COMPREHENSIVE FUNCTIONALITY COVERAGE:**
+
+#### **Handler Initialization (2 tests)**
+- **Basic Configuration**: Default parameter validation and property initialization
+- **Custom Parameters**: Max retries, retry delay, wait time, batch size configuration
+
+#### **Message Processing Pipeline (7 tests)**
+- **Successful Processing**: Message processing with result generation and output routing
+- **Data Type Handling**: String body, bytes body, generator body processing
+- **Error Scenarios**: Unicode decode errors, processor function exceptions, missing message IDs
+- **Output Management**: Result forwarding to output queue, null result handling
+
+#### **Message Sending Operations (4 tests)**
+- **String Messages**: Direct string content sending with success validation
+- **Dictionary Messages**: JSON serialization and structured data sending
+- **Connection Failures**: Authentication errors, network connectivity issues
+- **Error Recovery**: Graceful failure handling and resource cleanup
+
+#### **Message Listening Loop (6 tests)**
+- **Message Reception**: Queue polling, message retrieval, and processing coordination
+- **Connection Management**: Service Bus client lifecycle, receiver management
+- **Error Handling**: Processing failures, completion failures, connection errors
+- **Sleep Adjustment**: Dynamic sleep time based on message activity
+- **Graceful Degradation**: Continued operation despite individual message failures
+
+#### **Lifecycle Management (2 tests)**
+- **Graceful Shutdown**: Running handler termination with proper state management
+- **Idempotent Operations**: Safe multiple stop calls without side effects
 
 **Key Test Categories:**
-- Service Bus client initialization
-- Message processing (string, bytes, generator)
-- Message sending operations
-- Connection management
-- Error handling and retries
-- Sleep time adjustment logic
+- **Service Bus Client Initialization**: Configuration validation, parameter handling, default values
+- **Message Processing (string, bytes, generator)**: Multiple input formats with proper type conversion
+- **Message Sending Operations**: String and dictionary serialization with error handling
+- **Connection Management**: Azure Service Bus SDK integration and lifecycle management
+- **Error Handling and Retries**: Network failures, processing errors, retry logic
+- **Sleep Time Adjustment Logic**: Dynamic backoff based on queue activity
+
+**🔧 TECHNICAL IMPLEMENTATION INSIGHTS:**
+
+#### **Message Body Processing**
+- **Type Detection**: Automatic handling of string, bytes, and generator message bodies
+- **Encoding Handling**: UTF-8 decoding with error recovery for malformed data
+- **Generator Processing**: Iteration and concatenation of chunked message data
+
+#### **Azure Service Bus Integration**
+- **Client Management**: DefaultAzureCredential integration and service client lifecycle
+- **Async Context Managers**: Proper resource management for clients and receivers
+- **Queue Operations**: Send/receive operations with proper message completion
+
+#### **Error Recovery Patterns**
+- **Retry Logic**: Configurable retry delays and maximum retry limits
+- **Connection Recovery**: Automatic reconnection with exponential backoff
+- **Message Resilience**: Individual message failure isolation from overall operation
+
+#### **Performance Optimization**
+- **Sleep Adjustment**: Dynamic sleep intervals based on message availability
+- **Batch Processing**: Configurable message batch sizes for throughput optimization
+- **Resource Cleanup**: Proper async resource disposal and connection management
 
 **Notable Features:**
-- Multiple message body type support
-- Azure Service Bus SDK mocking
-- Connection lifecycle testing
-- Message processing pipeline validation
+- **Multiple Message Body Type Support**: String, bytes, generator, and dictionary handling
+- **Azure Service Bus SDK Mocking**: Complete SDK simulation with async context manager support
+- **Connection Lifecycle Testing**: Full connection establishment, usage, and cleanup validation
+- **Message Processing Pipeline Validation**: End-to-end message flow testing
+- **Dynamic Sleep Management**: Intelligent queue polling with activity-based intervals
+- **Comprehensive Error Scenarios**: Network, authentication, processing, and completion failures
 
 **Example Tests:**
 ```bash
+# Test initialization and configuration
+pytest tests_new/unittests/test_service_bus.py::TestAsyncServiceBusHandlerInit::test_init_basic -v
+
 # Test message processing
-pytest tests_new/unittests/test_service_bus.py::TestAsyncServiceBusHandler::test_process_string_message -v
+pytest tests_new/unittests/test_service_bus.py::TestAsyncServiceBusHandlerProcessMessage::test_process_message_success_with_result -v
 
 # Test message sending
-pytest tests_new/unittests/test_service_bus.py::TestAsyncServiceBusHandler::test_send_message_success -v
+pytest tests_new/unittests/test_service_bus.py::TestAsyncServiceBusHandlerSendMessage::test_send_message_string_success -v
+
+# Test listening and error handling
+pytest tests_new/unittests/test_service_bus.py::TestAsyncServiceBusHandlerListen::test_listen_processes_messages -v
+
+# Test connection error recovery
+pytest tests_new/unittests/test_service_bus.py::TestAsyncServiceBusHandlerListen::test_listen_connection_error -v
+
+# Test lifecycle management
+pytest tests_new/unittests/test_service_bus.py::TestAsyncServiceBusHandlerStop::test_stop_running_handler -v
+
+# Test sleep time adjustment
+pytest tests_new/unittests/test_service_bus.py::TestAsyncServiceBusHandlerIntegration::test_sleep_time_adjustment -v
 ```
+
+**Mock Strategy:**
+- **Azure Service Bus SDK**: Complete mocking of ServiceBusClient, queue senders, and receivers
+- **DefaultAzureCredential**: Authentication simulation with success and failure scenarios
+- **Async Context Managers**: Proper __aenter__/__aexit__ mocking for resource management
+- **Message Objects**: Mock ServiceBusMessage with various body types and properties
+- **Processor Functions**: AsyncMock with configurable return values and side effects
+- **Network Failures**: Exception simulation for connection and authentication errors
 
 ### 7. test_token_client.py (37 tests) ✅ **100% COVERAGE ACHIEVED**
 
@@ -1112,7 +1258,7 @@ This test suite represents **significant technical achievements** in comprehensi
 - **test_token_client.py**: **100% Coverage** - Complete HTTP client testing with advanced async patterns
 - **test_blob_storage.py**: **100% Coverage** - Comprehensive Azure SDK mocking with extreme edge case testing  
 - **test_log_monitor.py**: **91% Coverage** - Complete architectural rebuild from broken foundation
-- **Overall**: **209 tests** across 7 modules with robust error handling and edge case coverage
+- **Overall**: **188 tests** across 7 modules with robust error handling and edge case coverage
 
 ### ✅ **Technical Breakthroughs**
 
@@ -1205,4 +1351,4 @@ The testing framework now serves as a **reference implementation** for:
 - **Cross-Process Service Testing** with proper architecture alignment
 - **Production Deployment Validation** with real-world scenario coverage
 
-**Total Achievement**: **209 comprehensive tests** providing robust validation of critical microservice infrastructure components.
+**Total Achievement**: **188 comprehensive tests** providing robust validation of critical microservice infrastructure components.
