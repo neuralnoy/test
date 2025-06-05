@@ -1,114 +1,196 @@
 # OpenAI Token Counter Service
 
 ## Overview
-The Token Counter Service is a specialized microservice that provides token usage tracking and rate limiting for Azure OpenAI API calls. It manages a global token budget across multiple applications to prevent Azure OpenAI API rate limits from being exceeded, ensuring smooth operation of AI-powered applications.
+The Token Counter Service is a comprehensive microservice that provides token usage tracking and rate limiting for Azure OpenAI API calls across both completion and embedding services. It manages global token and request budgets across multiple applications to prevent Azure OpenAI API rate limits from being exceeded, ensuring smooth operation of AI-powered applications.
 
 ## Key Features
+- **Dual Service Support**: Separate tracking for completion and embedding services
 - **Token Usage Tracking**: Maintains real-time count of tokens used by all applications
+- **Request Rate Limiting**: Tracks and limits API requests per minute across services
 - **Token Reservation System**: Allows applications to "lock" tokens before making API calls
-- **Rate Limit Enforcement**: Prevents applications from exceeding the configured token rate limit
+- **Rate Limit Enforcement**: Prevents applications from exceeding configured token and request rate limits
 - **Reporting Mechanism**: Records actual token usage after API calls are completed
 - **Token Release**: Allows releasing unused tokens back to the pool
-- **Status Monitoring**: Provides real-time status of token availability
+- **Status Monitoring**: Provides real-time status of token availability and request limits
 
 ## Architecture
 
 ### Core Components
-1. **TokenCounter**: The main in-memory service that tracks token usage
-   - Manages a minute-based token budget with automatic resets
-   - Implements a locking mechanism to prevent race conditions
-   - Tracks token usage per request using unique request IDs
 
-2. **TokenClient**: A client library for applications to interact with the token counter
-   - Provides methods to lock, report, and release tokens
+#### Completion Services
+1. **TokenCounter**: Tracks completion token usage (prompt + completion tokens)
+   - Manages minute-based token budget with automatic resets
+   - Implements locking mechanism to prevent race conditions
+   - Default: 128,000 tokens per minute
+
+2. **RateCounter**: Tracks completion request rate limiting
+   - Manages API request quotas per minute
+   - Prevents request rate limit violations
+   - Default: 250 requests per minute
+
+#### Embedding Services
+3. **EmbeddingTokenCounter**: Tracks embedding token usage (prompt tokens only)
+   - Optimized for high-volume embedding operations
+   - Typically has higher token limits than completion services
+   - Default: 1,000,000 tokens per minute
+
+4. **EmbeddingRateCounter**: Tracks embedding request rate limiting
+   - Manages embedding API request quotas
+   - Independent rate limiting from completion services
+   - Default: 6000 requests per minute
+
+#### Client Integration
+5. **TokenClient**: A client library for applications to interact with the token counter
+   - Provides methods for both completion and embedding services
    - Handles communication with the counter service via HTTP
-   - Manages error handling for failed requests
+   - Manages error handling and combined request ID parsing
 
-3. **FastAPI Endpoints**: 
-   - `/lock`: Reserves tokens before making API calls
-   - `/report`: Reports actual token usage after calls complete
-   - `/release`: Releases tokens that won't be used
-   - `/status`: Gets current token availability and reset time
+6. **FastAPI Endpoints**: 
+   - **Completion**: `/lock`, `/report`, `/release`, `/status`
+   - **Embedding**: `/embedding/lock`, `/embedding/report`, `/embedding/release`, `/embedding/status`
 
 ## Technical Details
 
-### Token Locking Process
-1. Applications estimate token usage for their OpenAI API calls
-2. They request to lock that number of tokens via the `/lock` endpoint
-3. If tokens are available, the counter issues a unique request ID
-4. Applications use this ID to track and report actual usage
+### Token and Rate Locking Process
+1. Applications estimate token usage and request both token and rate locks
+2. The service checks both token availability and request rate limits
+3. If both limits allow, it issues a combined request ID (`token_id:rate_id`)
+4. Applications use this ID to track and report actual usage to both counters
 
-### Token Window Reset
-- The service has a configurable token limit per minute (default: 100,000)
-- Token counts automatically reset every 60 seconds
-- The status endpoint shows time remaining until the next reset
+### Reset Windows
+- All services have configurable limits per minute
+- Token and request counts automatically reset every 60 seconds
+- Status endpoints show time remaining until the next reset
+- Effective reset time is the minimum of token and rate reset times
 
 ### Concurrency Management
-- Uses `asyncio.Lock()` to prevent race conditions in token accounting
-- All operations on token counts are thread-safe
-- Supports concurrent requests from multiple applications
+- Uses `asyncio.Lock()` for each counter to prevent race conditions
+- All operations on token and request counts are thread-safe
+- Supports concurrent requests from multiple applications across all services
 
 ### Request Tracking
-- Each token reservation is tracked with a unique UUID
-- Request data stored includes:
-  - App ID requesting the tokens
-  - Number of tokens locked
-  - Timestamp of the request
-
-## Usage in Applications
-
-### Integration with Azure OpenAI Service
-The token counter is designed to work with the `AzureOpenAIService` in the common library:
-
-1. The OpenAI service initializes a `TokenClient`
-2. Before making API calls, it estimates token usage and locks tokens
-3. After getting responses, it reports actual usage
-4. In case of errors, it releases any locked tokens
-
-### Token Estimation
-- Uses `tiktoken` library to accurately estimate token counts
-- Accounts for both prompt and estimated completion tokens
-- Provides model-specific token counting
+- Each reservation is tracked with unique UUIDs
+- Combined request IDs allow tracking both token and rate usage
+- Request data includes app ID, resource counts, and timestamps
 
 ## Configuration
-- `OPENAI_TOKEN_LIMIT_PER_MINUTE`: Environment variable to set the token rate limit (default: 100,000)
+
+### Environment Variables
+```bash
+# Completion Service Limits
+APP_TPM_QUOTA=128000        # Completion tokens per minute
+APP_RPM_QUOTA=250           # Completion requests per minute
+
+# Embedding Service Limits  
+APP_EMBEDDING_TPM_QUOTA=1000000  # Embedding tokens per minute
+APP_EMBEDDING_RPM_QUOTA=6000      # Embedding requests per minute
+```
+
+### Default Values
+- **Completion Tokens**: 128,000 per minute
+- **Completion Requests**: 250 per minute
+- **Embedding Tokens**: 1,000,000 per minute (higher for bulk operations)
+- **Embedding Requests**: 6000 per minute
 
 ## API Endpoints
 
-### GET /
-Returns basic information about the app.
+### General Endpoints
 
-### GET /health
+#### GET /
+Returns basic information about the app and all configured limits.
+
+#### GET /health
 Health check endpoint.
 
-### POST /lock
-Locks tokens for usage.
+### Completion Service Endpoints
+
+#### POST /lock
+Locks tokens and request slots for completion usage.
 - Request body: `{"app_id": "app_name", "token_count": 1000}`
-- Response: `{"allowed": true, "request_id": "uuid"}`
+- Response: `{"allowed": true, "request_id": "token_uuid:rate_uuid", "rate_request_id": "rate_uuid"}`
 
-### POST /report
-Reports actual token usage after an API call.
-- Request body: `{"app_id": "app_name", "request_id": "uuid", "prompt_tokens": 150, "completion_tokens": 50}`
+#### POST /report
+Reports actual completion token usage after an API call.
+- Request body: `{"app_id": "app_name", "request_id": "combined_id", "prompt_tokens": 150, "completion_tokens": 50, "rate_request_id": "rate_uuid"}`
 - Response: `{"success": true}`
 
-### POST /release
-Releases locked tokens that won't be used.
-- Request body: `{"app_id": "app_name", "request_id": "uuid"}`
+#### POST /release
+Releases locked completion tokens and request slots.
+- Request body: `{"app_id": "app_name", "request_id": "combined_id", "rate_request_id": "rate_uuid"}`
 - Response: `{"success": true}`
 
-### GET /status
-Gets the current status of the token counter.
-- Response: `{"available_tokens": 95000, "used_tokens": 5000, "locked_tokens": 0, "reset_time_seconds": 45}`
+#### GET /status
+Gets current status of completion token and request counters.
+- Response: `{"available_tokens": 95000, "used_tokens": 5000, "locked_tokens": 0, "available_requests": 200, "used_requests": 50, "locked_requests": 0, "reset_time_seconds": 45}`
+
+### Embedding Service Endpoints
+
+#### POST /embedding/lock
+Locks tokens and request slots for embedding usage.
+- Request body: `{"app_id": "app_name", "token_count": 5000}`
+- Response: `{"allowed": true, "request_id": "token_uuid:rate_uuid", "rate_request_id": "rate_uuid"}`
+
+#### POST /embedding/report
+Reports actual embedding token usage after an API call.
+- Request body: `{"app_id": "app_name", "request_id": "combined_id", "prompt_tokens": 5000}`
+- Response: `{"success": true}`
+
+#### POST /embedding/release
+Releases locked embedding tokens and request slots.
+- Request body: `{"app_id": "app_name", "request_id": "combined_id"}`
+- Response: `{"success": true}`
+
+#### GET /embedding/status
+Gets current status of embedding token and request counters.
+- Response: `{"available_tokens": 950000, "used_tokens": 50000, "locked_tokens": 0, "available_requests": 450, "used_requests": 50, "locked_requests": 0, "reset_time_seconds": 30}`
+
+## Usage in Applications
+
+### Integration with Azure OpenAI Services
+
+#### Completion Service Integration
+The token counter works with the `AzureOpenAIService`:
+1. Initializes a `TokenClient` 
+2. Estimates token usage and locks both tokens and request slots
+3. Reports actual usage to both token and rate counters
+4. Releases locks in case of errors
+
+#### Embedding Service Integration
+The token counter works with the `AzureEmbeddingService`:
+1. Uses the same `TokenClient` with embedding-specific methods
+2. Calls `lock_embedding_tokens()`, `report_embedding_usage()`, `release_embedding_tokens()`
+3. Handles combined request IDs automatically
+4. Provides separate token tracking for embedding operations
+
+### Token Estimation
+- Uses `tiktoken` library for accurate token counting
+- **Completion**: Accounts for prompt + estimated completion tokens
+- **Embedding**: Only counts prompt tokens (no completion tokens)
+- Provides model-specific encoding (including text-embedding-3-large)
+
+## Service Separation Benefits
+
+### Independent Scaling
+- **Different Usage Patterns**: Embeddings often involve bulk operations with high token counts
+- **Different Pricing**: Embedding tokens are typically much cheaper than completion tokens
+- **Independent Limits**: Can tune each service based on actual usage patterns
+- **Clear Cost Tracking**: Separate accounting for different service types
+
+### Rate Limit Management
+- **Completion Services**: Balanced token and request limits for interactive use
+- **Embedding Services**: Higher token limits with moderate request limits for batch operations
+- **Independent Resets**: Each service resets independently based on usage patterns
 
 ## Retry Logic
-The system includes advanced retry logic for handling rate limit errors:
-- If a request is denied due to rate limits, applications can retry after the reset window
-- The `with_token_limit_retry` utility provides automatic waiting based on the reset time
-- This ensures applications can continue functioning during high-demand periods
+The system includes retry logic for handling rate limit errors:
+- Applications can retry after rate limit denials
+- The `with_token_limit_retry` utility provides automatic waiting
+- Works with both completion and embedding services
+- Handles combined request ID parsing automatically
 
 ## Running the Service
 ```bash
-uvicorn apps.app_counter.main:app --host 0.0.0.0 --port 8001 --workers 4
+uvicorn app_counter.main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
-The default port is 8001, which other applications expect when connecting to the token counter service. 
+The service runs on port 8000 by default and manages all four counter types simultaneously, providing comprehensive rate limiting for both completion and embedding Azure OpenAI services. 
