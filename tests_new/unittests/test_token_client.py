@@ -703,6 +703,543 @@ class TestTokenClientGetStatus:
                 assert status["client_timestamp"] == 1234567890.0
 
 
+class TestTokenClientLockEmbeddingTokens:
+    """Test the lock_embedding_tokens method."""
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_embedding_tokens_success(self):
+        """Test successful embedding token locking."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/lock",
+                payload={"allowed": True, "request_id": "emb_req_123"},
+                status=200
+            )
+            
+            # Act
+            allowed, request_id, error = await client.lock_embedding_tokens(1000)
+            
+            # Assert
+            assert allowed is True
+            assert request_id == "emb_req_123"
+            assert error is None
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_embedding_tokens_denied(self):
+        """Test embedding token locking when request is denied."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/lock",
+                payload={"allowed": False, "message": "Embedding token limit exceeded"},
+                status=429
+            )
+            
+            # Act
+            allowed, request_id, error = await client.lock_embedding_tokens(1000)
+            
+            # Assert
+            assert allowed is False
+            assert request_id is None
+            assert error == "Embedding token limit exceeded"
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_embedding_tokens_http_error(self):
+        """Test embedding token locking with HTTP error."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/lock",
+                exception=aiohttp.ClientError("Connection error")
+            )
+            
+            # Act
+            allowed, request_id, error = await client.lock_embedding_tokens(1000)
+            
+            # Assert
+            assert allowed is False
+            assert request_id is None
+            assert "Client error: Connection error" in error
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_embedding_tokens_missing_fields(self):
+        """Test embedding token locking when response is missing fields."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/lock",
+                payload={},  # Missing allowed and request_id
+                status=200
+            )
+            
+            # Act
+            allowed, request_id, error = await client.lock_embedding_tokens(1000)
+            
+            # Assert
+            assert allowed is False
+            assert request_id is None
+            assert error == "Unknown error"
+
+
+class TestTokenClientReportEmbeddingUsage:
+    """Test the report_embedding_usage method."""
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_report_embedding_usage_success(self):
+        """Test successful embedding usage reporting."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/report",
+                status=200
+            )
+            
+            # Act
+            result = await client.report_embedding_usage("emb_req_123", 500)
+            
+            # Assert
+            assert result is True
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_report_embedding_usage_http_error(self):
+        """Test embedding usage reporting with HTTP error."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/report",
+                exception=aiohttp.ClientError("Connection error")
+            )
+            
+            # Act
+            result = await client.report_embedding_usage("emb_req_123", 500)
+            
+            # Assert
+            assert result is False
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_report_embedding_usage_server_error(self):
+        """Test embedding usage reporting with server error response."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/report",
+                status=500
+            )
+            
+            # Act
+            result = await client.report_embedding_usage("emb_req_123", 500)
+            
+            # Assert
+            assert result is False
+
+
+class TestTokenClientReleaseEmbeddingTokens:
+    """Test the release_embedding_tokens method."""
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_release_embedding_tokens_success(self):
+        """Test successful embedding token release."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/release",
+                status=200
+            )
+            
+            # Act
+            result = await client.release_embedding_tokens("emb_req_123")
+            
+            # Assert
+            assert result is True
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_release_embedding_tokens_http_error(self):
+        """Test embedding token release with HTTP error."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/release",
+                exception=Exception("Network error")
+            )
+            
+            # Act
+            result = await client.release_embedding_tokens("emb_req_123")
+            
+            # Assert
+            assert result is False
+
+
+class TestTokenClientGetEmbeddingStatus:
+    """Test the get_embedding_status method."""
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_get_embedding_status_success(self):
+        """Test successful embedding status retrieval."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.get(
+                "http://test.com/embedding/status",
+                payload={
+                    "available_tokens": 50000,
+                    "used_tokens": 10000,
+                    "locked_tokens": 5000,
+                    "reset_time_seconds": 2400
+                },
+                status=200
+            )
+            
+            with patch('time.time', return_value=1234567890.0):
+                # Act
+                status = await client.get_embedding_status()
+                
+                # Assert
+                assert status is not None
+                assert status["available_tokens"] == 50000
+                assert status["used_tokens"] == 10000
+                assert status["locked_tokens"] == 5000
+                assert status["reset_time_seconds"] == 2400
+                assert status["client_app_id"] == "test_app"
+                assert status["client_timestamp"] == 1234567890.0
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_get_embedding_status_http_error(self):
+        """Test embedding status retrieval with HTTP error."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.get(
+                "http://test.com/embedding/status",
+                exception=Exception("Connection error")
+            )
+            
+            # Act
+            status = await client.get_embedding_status()
+            
+            # Assert
+            assert status is None
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_get_embedding_status_server_error(self):
+        """Test embedding status retrieval with server error response."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.get(
+                "http://test.com/embedding/status",
+                status=500
+            )
+            
+            # Act
+            status = await client.get_embedding_status()
+            
+            # Assert
+            assert status is None
+
+
+class TestTokenClientLockEmbeddingTokens:
+    """Test the lock_embedding_tokens method."""
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_embedding_tokens_success(self):
+        """Test successful embedding token locking."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/lock",
+                payload={"allowed": True, "request_id": "emb_req_123"},
+                status=200
+            )
+            
+            # Act
+            allowed, request_id, error = await client.lock_embedding_tokens(1000)
+            
+            # Assert
+            assert allowed is True
+            assert request_id == "emb_req_123"
+            assert error is None
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_embedding_tokens_denied(self):
+        """Test embedding token locking when request is denied."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/lock",
+                payload={"allowed": False, "message": "Embedding token limit exceeded"},
+                status=429
+            )
+            
+            # Act
+            allowed, request_id, error = await client.lock_embedding_tokens(1000)
+            
+            # Assert
+            assert allowed is False
+            assert request_id is None
+            assert error == "Embedding token limit exceeded"
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_embedding_tokens_http_error(self):
+        """Test embedding token locking with HTTP error."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/lock",
+                exception=aiohttp.ClientError("Connection error")
+            )
+            
+            # Act
+            allowed, request_id, error = await client.lock_embedding_tokens(1000)
+            
+            # Assert
+            assert allowed is False
+            assert request_id is None
+            assert "Client error: Connection error" in error
+
+
+class TestTokenClientReportEmbeddingUsage:
+    """Test the report_embedding_usage method."""
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_report_embedding_usage_success(self):
+        """Test successful embedding usage reporting."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/report",
+                status=200
+            )
+            
+            # Act
+            result = await client.report_embedding_usage("emb_req_123", 500)
+            
+            # Assert
+            assert result is True
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_report_embedding_usage_http_error(self):
+        """Test embedding usage reporting with HTTP error."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/report",
+                exception=aiohttp.ClientError("Connection error")
+            )
+            
+            # Act
+            result = await client.report_embedding_usage("emb_req_123", 500)
+            
+            # Assert
+            assert result is False
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_report_embedding_usage_server_error(self):
+        """Test embedding usage reporting with server error response."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/report",
+                status=500
+            )
+            
+            # Act
+            result = await client.report_embedding_usage("emb_req_123", 500)
+            
+            # Assert
+            assert result is False
+
+
+class TestTokenClientReleaseEmbeddingTokens:
+    """Test the release_embedding_tokens method."""
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_release_embedding_tokens_success(self):
+        """Test successful embedding token release."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/release",
+                status=200
+            )
+            
+            # Act
+            result = await client.release_embedding_tokens("emb_req_123")
+            
+            # Assert
+            assert result is True
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_release_embedding_tokens_http_error(self):
+        """Test embedding token release with HTTP error."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.post(
+                "http://test.com/embedding/release",
+                exception=Exception("Network error")
+            )
+            
+            # Act
+            result = await client.release_embedding_tokens("emb_req_123")
+            
+            # Assert
+            assert result is False
+
+
+class TestTokenClientGetEmbeddingStatus:
+    """Test the get_embedding_status method."""
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_get_embedding_status_success(self):
+        """Test successful embedding status retrieval."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.get(
+                "http://test.com/embedding/status",
+                payload={
+                    "available_tokens": 50000,
+                    "used_tokens": 10000,
+                    "locked_tokens": 5000,
+                    "reset_time_seconds": 2400
+                },
+                status=200
+            )
+            
+            with patch('time.time', return_value=1234567890.0):
+                # Act
+                status = await client.get_embedding_status()
+                
+                # Assert
+                assert status is not None
+                assert status["available_tokens"] == 50000
+                assert status["used_tokens"] == 10000
+                assert status["locked_tokens"] == 5000
+                assert status["reset_time_seconds"] == 2400
+                assert status["client_app_id"] == "test_app"
+                assert status["client_timestamp"] == 1234567890.0
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_get_embedding_status_http_error(self):
+        """Test embedding status retrieval with HTTP error."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.get(
+                "http://test.com/embedding/status",
+                exception=Exception("Connection error")
+            )
+            
+            # Act
+            status = await client.get_embedding_status()
+            
+            # Assert
+            assert status is None
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_get_embedding_status_server_error(self):
+        """Test embedding status retrieval with server error response."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.get(
+                "http://test.com/embedding/status",
+                status=500
+            )
+            
+            # Act
+            status = await client.get_embedding_status()
+            
+            # Assert
+            assert status is None
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_get_embedding_status_minimal_response(self):
+        """Test embedding status retrieval with minimal response data."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            mock.get(
+                "http://test.com/embedding/status",
+                payload={},  # Empty response
+                status=200
+            )
+            
+            with patch('time.time', return_value=1234567890.0):
+                # Act
+                status = await client.get_embedding_status()
+                
+                # Assert
+                assert status is not None
+                assert status["client_app_id"] == "test_app"
+                assert status["client_timestamp"] == 1234567890.0
+
+
 class TestTokenClientIntegration:
     """Integration tests for TokenClient functionality."""
     
@@ -744,4 +1281,45 @@ class TestTokenClientIntegration:
             
             # Act - Release tokens (shouldn't be needed after report, but testing)
             release_success = await client.release_tokens(request_id)
-            assert release_success is True 
+            assert release_success is True
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_full_embedding_lifecycle(self):
+        """Test complete embedding token usage lifecycle."""
+        # Arrange
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        
+        with aioresponses() as mock:
+            # Mock lock embedding tokens
+            mock.post(
+                "http://test.com/embedding/lock",
+                payload={"allowed": True, "request_id": "emb_req_123"},
+                status=200
+            )
+            
+            # Mock report embedding usage
+            mock.post(
+                "http://test.com/embedding/report",
+                status=200
+            )
+            
+            # Mock release embedding tokens
+            mock.post(
+                "http://test.com/embedding/release",
+                status=200
+            )
+            
+            # Act - Lock embedding tokens
+            allowed, request_id, error = await client.lock_embedding_tokens(1000)
+            assert allowed is True
+            assert request_id == "emb_req_123"
+            
+            # Act - Report embedding usage
+            report_success = await client.report_embedding_usage(request_id, 950)
+            assert report_success is True
+            
+            # Act - Release embedding tokens (shouldn't be needed after report, but testing)
+            release_success = await client.release_embedding_tokens(request_id)
+            assert release_success is True
+    
