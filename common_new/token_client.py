@@ -119,6 +119,84 @@ class TokenClient:
                 logger.error(f"Error releasing tokens: {str(e)}")
                 return False
     
+    async def lock_embedding_tokens(self, token_count: int) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Lock embedding tokens for usage.
+        
+        Args:
+            token_count: The number of embedding tokens to lock
+            
+        Returns:
+            Tuple of (allowed, request_id, error_message)
+        """
+        async with aiohttp.ClientSession() as session:
+            try:
+                url = f"{self.base_url}/embedding/lock"
+                data = {
+                    "app_id": self.app_id,
+                    "token_count": token_count
+                }                
+                async with session.post(url, json=data) as response:
+                    response_data = await response.json()
+                    
+                    if response.status == 200 and response_data.get("allowed", False):
+                        return True, response_data.get("request_id"), None
+                    else:
+                        return False, None, response_data.get("message", "Unknown error")
+            except Exception as e:
+                logger.error(f"Error locking embedding tokens: {str(e)}")
+                return False, None, f"Client error: {str(e)}"
+    
+    async def report_embedding_usage(self, request_id: str, prompt_tokens: int) -> bool:
+        """
+        Report actual embedding token usage after an API call.
+        
+        Args:
+            request_id: The request ID returned when tokens were locked
+            prompt_tokens: Number of tokens used for embedding
+            
+        Returns:
+            Boolean indicating if the report was successful
+        """
+        async with aiohttp.ClientSession() as session:
+            try:
+                url = f"{self.base_url}/embedding/report"
+                data = {
+                    "app_id": self.app_id,
+                    "request_id": request_id,
+                    "prompt_tokens": prompt_tokens
+                }
+                
+                async with session.post(url, json=data) as response:
+                    return response.status == 200
+            except Exception as e:
+                logger.error(f"Error reporting embedding token usage: {str(e)}")
+                return False
+    
+    async def release_embedding_tokens(self, request_id: str) -> bool:
+        """
+        Release locked embedding tokens that won't be used.
+        
+        Args:
+            request_id: The request ID returned when tokens were locked
+            
+        Returns:
+            Boolean indicating if the release was successful
+        """
+        async with aiohttp.ClientSession() as session:
+            try:
+                url = f"{self.base_url}/embedding/release"
+                data = {
+                    "app_id": self.app_id,
+                    "request_id": request_id
+                }
+                
+                async with session.post(url, json=data) as response:
+                    return response.status == 200
+            except Exception as e:
+                logger.error(f"Error releasing embedding tokens: {str(e)}")
+                return False
+
     async def get_status(self) -> Optional[Dict[str, Any]]:
         """
         Get the current status of the token counter.
@@ -149,4 +227,33 @@ class TokenClient:
                         return None
             except Exception as e:
                 logger.error(f"Error getting token counter status: {str(e)}")
+                return None
+    
+    async def get_embedding_status(self) -> Optional[Dict[str, Any]]:
+        """
+        Get the current status of the embedding token counter.
+        
+        Returns:
+            Dict with available embedding tokens, used tokens, locked tokens, and seconds until reset
+        """
+        async with aiohttp.ClientSession() as session:
+            try:
+                url = f"{self.base_url}/embedding/status"               
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        status_data = await response.json()
+                        
+                        # Add client information to help with debugging
+                        status_data["client_app_id"] = self.app_id
+                        status_data["client_timestamp"] = time.time()
+                        
+                        # Log the status information for debugging
+                        logger.debug(f"EMBEDDING STATUS: Retrieved for {self.app_id}: embedding_avail={status_data.get('available_tokens')}, reset_in={status_data.get('reset_time_seconds', 0)}s")
+                        
+                        return status_data
+                    else:
+                        logger.warning(f"Failed to get embedding status: HTTP {response.status}")
+                        return None
+            except Exception as e:
+                logger.error(f"Error getting embedding counter status: {str(e)}")
                 return None 

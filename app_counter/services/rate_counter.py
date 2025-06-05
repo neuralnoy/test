@@ -4,7 +4,7 @@ import uuid
 from typing import Dict, Any
 from common_new.logger import get_logger
 
-logger = get_logger("rate_counter")
+logger = get_logger("services")
 
 class RateCounter:
     """

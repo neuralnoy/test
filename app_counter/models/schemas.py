@@ -14,6 +14,12 @@ class TokenReport(BaseModel):
     completion_tokens: int
     rate_request_id: Optional[str] = None
 
+class EmbeddingReport(BaseModel):
+    """Report actual embedding token usage after API call."""
+    app_id: str
+    request_id: str
+    prompt_tokens: int
+
 class ReleaseRequest(BaseModel):
     """Request to release locked tokens."""
     app_id: str
@@ -29,6 +35,16 @@ class TokenResponse(BaseModel):
 
 class StatusResponse(BaseModel):
     """Status of the token counter."""
+    available_tokens: int
+    used_tokens: int
+    locked_tokens: int
+    available_requests: Optional[int] = None
+    used_requests: Optional[int] = None
+    locked_requests: Optional[int] = None
+    reset_time_seconds: int
+
+class EmbeddingStatusResponse(BaseModel):
+    """Status of the embedding token counter."""
     available_tokens: int
     used_tokens: int
     locked_tokens: int

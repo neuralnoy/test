@@ -5,12 +5,15 @@ from contextlib import asynccontextmanager
 from common_new.logger import get_logger
 from app_counter.services.token_counter import TokenCounter
 from app_counter.services.rate_counter import RateCounter
+from app_counter.services.embedding_counter import EmbeddingCounter
 from app_counter.models.schemas import (
     TokenRequest,
     TokenReport,
+    EmbeddingReport,
     ReleaseRequest,
     TokenResponse,
-    StatusResponse
+    StatusResponse,
+    EmbeddingStatusResponse
 )
 
 logger = get_logger("counter")
@@ -19,10 +22,16 @@ logger = get_logger("counter")
 TOKEN_LIMIT_PER_MINUTE = int(os.getenv("APP_TPM_QUOTA", "128000"))
 # Get rate limit from environment variables or use default
 RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_RPM_QUOTA", "250"))
+# Get embedding token limit from environment variables or use default (typically higher than chat tokens)
+EMBEDDING_TOKEN_LIMIT_PER_MINUTE = int(os.getenv("APP_EMBEDDING_TPM_QUOTA", "1000000"))
+# Get embedding rate limit from environment variables or use default
+EMBEDDING_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_EMBEDDING_RPM_QUOTA", "500"))
 
 # Initialize the token counter and rate counter services
 token_counter = TokenCounter(tokens_per_minute=TOKEN_LIMIT_PER_MINUTE)
 rate_counter = RateCounter(requests_per_minute=RATE_LIMIT_PER_MINUTE)
+embedding_counter = EmbeddingCounter(tokens_per_minute=EMBEDDING_TOKEN_LIMIT_PER_MINUTE)
+embedding_rate_counter = RateCounter(requests_per_minute=EMBEDDING_RATE_LIMIT_PER_MINUTE)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,7 +40,7 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events.
     """
     # Startup logic
-    logger.info(f"Starting Token Counter app with limit of {TOKEN_LIMIT_PER_MINUTE} tokens per minute and {RATE_LIMIT_PER_MINUTE} requests per minute")
+    logger.info(f"Starting Token Counter app with limit of {TOKEN_LIMIT_PER_MINUTE} tokens per minute, {EMBEDDING_TOKEN_LIMIT_PER_MINUTE} embedding tokens per minute, {RATE_LIMIT_PER_MINUTE} requests per minute, and {EMBEDDING_RATE_LIMIT_PER_MINUTE} embedding requests per minute")
     
     # Initialize log monitoring service if configured
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
@@ -71,6 +80,8 @@ async def lifespan(app: FastAPI):
     # Store counters in app state for access from endpoints
     app.state.token_counter = token_counter
     app.state.rate_counter = rate_counter
+    app.state.embedding_counter = embedding_counter
+    app.state.embedding_rate_counter = embedding_rate_counter
     
     yield  # This is where the app runs
     
@@ -96,12 +107,14 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/")
 def read_root():
-    logger.info(f"CONFIG: token_limit={TOKEN_LIMIT_PER_MINUTE}, rate_limit={RATE_LIMIT_PER_MINUTE}")
+    logger.info(f"CONFIG: token_limit={TOKEN_LIMIT_PER_MINUTE}, embedding_token_limit={EMBEDDING_TOKEN_LIMIT_PER_MINUTE}, rate_limit={RATE_LIMIT_PER_MINUTE}, embedding_rate_limit={EMBEDDING_RATE_LIMIT_PER_MINUTE}")
     return {
         "app": "OpenAI Token Counter",
         "status": "running",
         "token_limit_per_minute": TOKEN_LIMIT_PER_MINUTE,
-        "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE
+        "embedding_token_limit_per_minute": EMBEDDING_TOKEN_LIMIT_PER_MINUTE,
+        "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
+        "embedding_rate_limit_per_minute": EMBEDDING_RATE_LIMIT_PER_MINUTE
     }
 
 @app.get("/health")
@@ -245,5 +258,160 @@ async def get_status():
         available_requests=rate_status.get("available_requests", 0),
         used_requests=rate_status.get("used_requests", 0),
         locked_requests=rate_status.get("locked_requests", 0),
+        reset_time_seconds=effective_reset  # Use the minimum of the two reset times
+    )
+
+# Embedding endpoints
+@app.post("/embedding/lock", response_model=TokenResponse)
+async def lock_embedding_tokens(request: TokenRequest):
+    """
+    Lock embedding tokens for usage and check embedding rate limits.
+    Returns whether the request is allowed and a request ID if allowed.
+    """
+    logger.info(f"API EMBEDDING LOCK: app={request.app_id}, tokens={request.token_count}")
+    
+    # First check the embedding rate limit
+    rate_result = await embedding_rate_counter.lock_request(request.app_id)
+    
+    if not rate_result.get("allowed", False):
+        logger.warning(f"API EMBEDDING LOCK DENIED (RATE): app={request.app_id}, tokens={request.token_count}, reason={rate_result.get('message')}")
+        return TokenResponse(
+            allowed=False,
+            message=f"Embedding rate limit would be exceeded: {rate_result.get('message', 'Embedding rate limit exceeded')}"
+        )
+    
+    # Then check the embedding token limit
+    embedding_result = await embedding_counter.lock_tokens(request.app_id, request.token_count)
+    
+    if not embedding_result.get("allowed", False):
+        # Release the rate lock since we're not proceeding
+        await embedding_rate_counter.release_request(request.app_id, rate_result["request_id"])
+        logger.warning(f"API EMBEDDING LOCK DENIED (TOKEN): app={request.app_id}, tokens={request.token_count}, reason={embedding_result.get('message')}")
+        return TokenResponse(
+            allowed=False,
+            message=f"Embedding token limit would be exceeded: {embedding_result.get('message', 'Embedding token limit exceeded')}"
+        )
+    
+    # Combine embedding token and embedding rate request IDs
+    combined_request_id = f"{embedding_result['request_id']}:{rate_result['request_id']}"
+    
+    # Both limits passed, return success with combined info
+    logger.info(f"API EMBEDDING LOCK APPROVED: app={request.app_id}, tokens={request.token_count}, combined_id={combined_request_id}")
+    
+    return TokenResponse(
+        allowed=True,
+        request_id=combined_request_id,
+        rate_request_id=rate_result["request_id"]
+    )
+
+@app.post("/embedding/report", status_code=200)
+async def report_embedding_usage(report: EmbeddingReport):
+    """
+    Report actual embedding token usage after an API call.
+    """
+    logger.info(f"API EMBEDDING REPORT: app={report.app_id}, request_id={report.request_id}, prompt={report.prompt_tokens}")
+    
+    # Parse combined request ID if it contains both token and rate IDs
+    token_request_id = report.request_id
+    rate_request_id = None
+    
+    if ":" in report.request_id:
+        token_request_id, rate_request_id = report.request_id.split(":", 1)
+    
+    success = await embedding_counter.report_usage(
+        report.app_id,
+        token_request_id,
+        report.prompt_tokens
+    )
+    
+    if not success:
+        error_msg = f"Failed to report embedding token usage. Invalid request ID or app ID."
+        logger.error(f"API EMBEDDING REPORT ERROR: app={report.app_id}, request_id={report.request_id}, reason={error_msg}")
+        raise HTTPException(status_code=400, detail=error_msg)
+    
+    # If rate request ID is provided, confirm the request
+    rate_success = True
+    if rate_request_id:
+        rate_success = await embedding_rate_counter.confirm_request(
+            report.app_id,
+            rate_request_id
+        )
+        if not rate_success:
+            logger.warning(f"API EMBEDDING REPORT PARTIAL: app={report.app_id}, token_success=True, rate_success=False, rate_id={rate_request_id}")
+    
+    logger.info(f"API EMBEDDING REPORT SUCCESS: app={report.app_id}, token_success={success}, rate_success={rate_success}")
+    return {"success": True}
+
+@app.post("/embedding/release", status_code=200)
+async def release_embedding_tokens(request: ReleaseRequest):
+    """
+    Release locked embedding tokens that won't be used.
+    """
+    logger.info(f"API EMBEDDING RELEASE: app={request.app_id}, request_id={request.request_id}, rate_id={request.rate_request_id}")
+    
+    # Parse combined request ID if it contains both token and rate IDs
+    token_request_id = request.request_id
+    rate_request_id = request.rate_request_id
+    
+    if ":" in request.request_id:
+        token_request_id, parsed_rate_id = request.request_id.split(":", 1)
+        # Use parsed rate ID if no explicit rate_request_id was provided
+        if not rate_request_id:
+            rate_request_id = parsed_rate_id
+    
+    success = await embedding_counter.release_tokens(request.app_id, token_request_id)
+    
+    if not success:
+        error_msg = f"Failed to release embedding tokens. Invalid request ID or app ID."
+        logger.error(f"API EMBEDDING RELEASE ERROR: app={request.app_id}, request_id={request.request_id}, reason={error_msg}")
+        raise HTTPException(status_code=400, detail=error_msg)
+    
+    # If rate request ID is provided, release the request slot
+    rate_success = True
+    if rate_request_id:
+        rate_success = await embedding_rate_counter.release_request(
+            request.app_id,
+            rate_request_id
+        )
+        if not rate_success:
+            logger.warning(f"API EMBEDDING RELEASE PARTIAL: app={request.app_id}, token_success=True, rate_success=False, rate_id={rate_request_id}")
+    
+    logger.info(f"API EMBEDDING RELEASE SUCCESS: app={request.app_id}, token_success={success}, rate_success={rate_success}")
+    return {"success": True}
+
+@app.get("/embedding/status", response_model=EmbeddingStatusResponse)
+async def get_embedding_status():
+    """
+    Get the current status of the embedding token counter and rate counter.
+    """
+    logger.info("API EMBEDDING STATUS: Fetching current status")
+    
+    embedding_status = await embedding_counter.get_status()
+    embedding_rate_status = await embedding_rate_counter.get_status()
+    
+    # Calculate which limit will reset first
+    token_reset = embedding_status.get("reset_time_seconds", 0)
+    rate_reset = embedding_rate_status.get("reset_time_seconds", 0)
+    
+    # Use the minimum reset time as the effective reset time
+    effective_reset = min(token_reset, rate_reset)
+    
+    embedding_usage = embedding_status.get("used_tokens", 0) + embedding_status.get("locked_tokens", 0)
+    embedding_rate_usage = embedding_rate_status.get("used_requests", 0) + embedding_rate_status.get("locked_requests", 0)
+    
+    embedding_pct = (embedding_usage / EMBEDDING_TOKEN_LIMIT_PER_MINUTE) * 100 if EMBEDDING_TOKEN_LIMIT_PER_MINUTE > 0 else 0
+    embedding_rate_pct = (embedding_rate_usage / EMBEDDING_RATE_LIMIT_PER_MINUTE) * 100 if EMBEDDING_RATE_LIMIT_PER_MINUTE > 0 else 0
+    
+    logger.info(f"API EMBEDDING STATUS RESULT: tokens={embedding_usage}/{EMBEDDING_TOKEN_LIMIT_PER_MINUTE} ({embedding_pct:.1f}%), "
+                f"requests={embedding_rate_usage}/{EMBEDDING_RATE_LIMIT_PER_MINUTE} ({embedding_rate_pct:.1f}%), "
+                f"token_reset={token_reset}s, rate_reset={rate_reset}s, effective_reset={effective_reset}s")
+    
+    return EmbeddingStatusResponse(
+        available_tokens=embedding_status.get("available_tokens", 0),
+        used_tokens=embedding_status.get("used_tokens", 0),
+        locked_tokens=embedding_status.get("locked_tokens", 0),
+        available_requests=embedding_rate_status.get("available_requests", 0),
+        used_requests=embedding_rate_status.get("used_requests", 0),
+        locked_requests=embedding_rate_status.get("locked_requests", 0),
         reset_time_seconds=effective_reset  # Use the minimum of the two reset times
     ) 

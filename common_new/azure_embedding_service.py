@@ -152,8 +152,8 @@ class AzureEmbeddingService:
         # Estimate token usage
         estimated_tokens = self._estimate_tokens(texts, model)
         
-        # Check token availability
-        allowed, request_id, error_message = await self.token_client.lock_tokens(estimated_tokens)
+        # Check embedding token availability
+        allowed, request_id, error_message = await self.token_client.lock_embedding_tokens(estimated_tokens)
         
         if not allowed:
             logger.warning(f"Embedding request denied: {error_message}")
@@ -169,12 +169,11 @@ class AzureEmbeddingService:
                 user=user
             )
             
-            # Report actual token usage
+            # Report actual embedding token usage
             if hasattr(response, 'usage') and response.usage:
-                await self.token_client.report_usage(
+                await self.token_client.report_embedding_usage(
                     request_id=request_id,
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=0  # Embeddings don't have completion tokens
+                    prompt_tokens=response.usage.prompt_tokens
                 )
             
             # Extract embeddings from response
@@ -188,8 +187,8 @@ class AzureEmbeddingService:
             return embeddings
             
         except Exception as e:
-            # Release tokens if API call fails
-            await self.token_client.release_tokens(request_id)
+            # Release embedding tokens if API call fails
+            await self.token_client.release_embedding_tokens(request_id)
             logger.error(f"Error creating embeddings: {str(e)}")
             raise
     
