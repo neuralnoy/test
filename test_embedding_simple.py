@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Simple test script for Azure Embedding Service - Direct API test.
 Tests basic embedding creation without token counter integration.
