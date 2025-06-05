@@ -181,9 +181,7 @@ class AzureEmbeddingService:
             
             logger.debug(f"Successfully created {len(embeddings)} embeddings")
             
-            # Return single embedding if single text was provided
-            if single_text:
-                return embeddings[0]
+            # Always return list of embeddings for consistency
             return embeddings
             
         except Exception as e:
