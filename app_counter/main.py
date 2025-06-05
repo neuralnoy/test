@@ -5,7 +5,8 @@ from contextlib import asynccontextmanager
 from common_new.logger import get_logger
 from app_counter.services.token_counter import TokenCounter
 from app_counter.services.rate_counter import RateCounter
-from app_counter.services.embedding_counter import EmbeddingCounter
+from app_counter.services.embedding_token_counter import EmbeddingTokenCounter
+from app_counter.services.embedding_rate_counter import EmbeddingRateCounter
 from app_counter.models.schemas import (
     TokenRequest,
     TokenReport,
@@ -30,8 +31,8 @@ EMBEDDING_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_EMBEDDING_RPM_QUOTA", "500"
 # Initialize the token counter and rate counter services
 token_counter = TokenCounter(tokens_per_minute=TOKEN_LIMIT_PER_MINUTE)
 rate_counter = RateCounter(requests_per_minute=RATE_LIMIT_PER_MINUTE)
-embedding_counter = EmbeddingCounter(tokens_per_minute=EMBEDDING_TOKEN_LIMIT_PER_MINUTE)
-embedding_rate_counter = RateCounter(requests_per_minute=EMBEDDING_RATE_LIMIT_PER_MINUTE)
+embedding_token_counter = EmbeddingTokenCounter(tokens_per_minute=EMBEDDING_TOKEN_LIMIT_PER_MINUTE)
+embedding_rate_counter = EmbeddingRateCounter(requests_per_minute=EMBEDDING_RATE_LIMIT_PER_MINUTE)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -80,7 +81,7 @@ async def lifespan(app: FastAPI):
     # Store counters in app state for access from endpoints
     app.state.token_counter = token_counter
     app.state.rate_counter = rate_counter
-    app.state.embedding_counter = embedding_counter
+    app.state.embedding_token_counter = embedding_token_counter
     app.state.embedding_rate_counter = embedding_rate_counter
     
     yield  # This is where the app runs
@@ -281,7 +282,7 @@ async def lock_embedding_tokens(request: TokenRequest):
         )
     
     # Then check the embedding token limit
-    embedding_result = await embedding_counter.lock_tokens(request.app_id, request.token_count)
+    embedding_result = await embedding_token_counter.lock_tokens(request.app_id, request.token_count)
     
     if not embedding_result.get("allowed", False):
         # Release the rate lock since we're not proceeding
@@ -318,7 +319,7 @@ async def report_embedding_usage(report: EmbeddingReport):
     if ":" in report.request_id:
         token_request_id, rate_request_id = report.request_id.split(":", 1)
     
-    success = await embedding_counter.report_usage(
+    success = await embedding_token_counter.report_usage(
         report.app_id,
         token_request_id,
         report.prompt_tokens
@@ -359,7 +360,7 @@ async def release_embedding_tokens(request: ReleaseRequest):
         if not rate_request_id:
             rate_request_id = parsed_rate_id
     
-    success = await embedding_counter.release_tokens(request.app_id, token_request_id)
+    success = await embedding_token_counter.release_tokens(request.app_id, token_request_id)
     
     if not success:
         error_msg = f"Failed to release embedding tokens. Invalid request ID or app ID."
@@ -386,7 +387,7 @@ async def get_embedding_status():
     """
     logger.info("API EMBEDDING STATUS: Fetching current status")
     
-    embedding_status = await embedding_counter.get_status()
+    embedding_status = await embedding_token_counter.get_status()
     embedding_rate_status = await embedding_rate_counter.get_status()
     
     # Calculate which limit will reset first

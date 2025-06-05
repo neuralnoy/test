@@ -6,14 +6,14 @@ from common_new.logger import get_logger
 
 logger = get_logger("services")
 
-class EmbeddingCounter:
+class EmbeddingTokenCounter:
     """
     In-memory embedding token counter service for OpenAI embedding API calls.
     Manages embedding token usage across applications to prevent rate limit issues.
     """
     def __init__(self, tokens_per_minute: int = 1000000):
         """
-        Initialize the embedding counter with the rate limit.
+        Initialize the embedding token counter with the rate limit.
         
         Args:
             tokens_per_minute: The embedding token rate limit per minute (typically higher than chat tokens)
@@ -24,13 +24,13 @@ class EmbeddingCounter:
         self.last_reset = time.time()
         self.lock = asyncio.Lock()
         self.requests: Dict[str, Dict[str, Any]] = {}
-        logger.info(f"Initialized EmbeddingCounter with {tokens_per_minute} embedding tokens per minute limit")
+        logger.info(f"Initialized EmbeddingTokenCounter with {tokens_per_minute} embedding tokens per minute limit")
     
     async def _reset_if_needed(self):
         """Reset the counter if a minute has passed."""
         current_time = time.time()
         if current_time - self.last_reset >= 60:
-            logger.info(f"Resetting embedding counter. Before reset: used={self.used_tokens}, locked={self.locked_tokens}, total={(self.used_tokens + self.locked_tokens)}/{self.tokens_per_minute}")
+            logger.info(f"Resetting embedding token counter. Before reset: used={self.used_tokens}, locked={self.locked_tokens}, total={(self.used_tokens + self.locked_tokens)}/{self.tokens_per_minute}")
             self.used_tokens = 0
             self.last_reset = current_time
             logger.info(f"After reset: used={self.used_tokens}, locked={self.locked_tokens}, total={(self.used_tokens + self.locked_tokens)}/{self.tokens_per_minute}")
@@ -52,7 +52,7 @@ class EmbeddingCounter:
             available = self.tokens_per_minute - (self.used_tokens + self.locked_tokens)
             total_used = self.used_tokens + self.locked_tokens
             
-            logger.info(f"EMBEDDING CHECK: app={app_id}, requested={token_count}, used={self.used_tokens}, locked={self.locked_tokens}, total={total_used}/{self.tokens_per_minute}, available={available}")
+            logger.info(f"EMBEDDING TOKEN CHECK: app={app_id}, requested={token_count}, used={self.used_tokens}, locked={self.locked_tokens}, total={total_used}/{self.tokens_per_minute}, available={available}")
             
             if token_count <= available:
                 request_id = str(uuid.uuid4())
@@ -63,13 +63,13 @@ class EmbeddingCounter:
                     "timestamp": time.time()
                 }
                 new_total = self.used_tokens + self.locked_tokens
-                logger.info(f"EMBEDDING APPROVED: app={app_id}, request_id={request_id}, tokens={token_count}, new_total={new_total}/{self.tokens_per_minute}, locked={self.locked_tokens}, used={self.used_tokens}")
+                logger.info(f"EMBEDDING TOKEN APPROVED: app={app_id}, request_id={request_id}, tokens={token_count}, new_total={new_total}/{self.tokens_per_minute}, locked={self.locked_tokens}, used={self.used_tokens}")
                 return {
                     "allowed": True,
                     "request_id": request_id
                 }
             else:
-                logger.warning(f"EMBEDDING DENIED: app={app_id}, requested={token_count}, available={available}, total={total_used}/{self.tokens_per_minute}")
+                logger.warning(f"EMBEDDING TOKEN DENIED: app={app_id}, requested={token_count}, available={available}, total={total_used}/{self.tokens_per_minute}")
                 return {
                     "allowed": False,
                     "message": f"Embedding token limit would be exceeded. Available: {available}, Requested: {token_count}, Total: {total_used}/{self.tokens_per_minute}"
@@ -90,11 +90,11 @@ class EmbeddingCounter:
         """
         async with self.lock:
             if request_id not in self.requests:
-                logger.error(f"EMBEDDING REPORT ERROR: Invalid request ID {request_id} from {app_id}")
+                logger.error(f"EMBEDDING TOKEN REPORT ERROR: Invalid request ID {request_id} from {app_id}")
                 return False
             
             if self.requests[request_id]["app_id"] != app_id:
-                logger.error(f"EMBEDDING REPORT ERROR: App ID mismatch for request {request_id}: expected {self.requests[request_id]['app_id']}, got {app_id}")
+                logger.error(f"EMBEDDING TOKEN REPORT ERROR: App ID mismatch for request {request_id}: expected {self.requests[request_id]['app_id']}, got {app_id}")
                 return False
             
             # Get the locked tokens for this request
@@ -114,7 +114,7 @@ class EmbeddingCounter:
             del self.requests[request_id]
             
             total = self.used_tokens + self.locked_tokens
-            logger.info(f"EMBEDDING REPORTED: app={app_id}, request_id={request_id}, prompt={prompt_tokens}, actual={actual_usage}, expected={locked_tokens}, locked changed {before_locked}->{self.locked_tokens}, used changed {before_used}->{self.used_tokens}, total={total}/{self.tokens_per_minute}")
+            logger.info(f"EMBEDDING TOKEN REPORTED: app={app_id}, request_id={request_id}, prompt={prompt_tokens}, actual={actual_usage}, expected={locked_tokens}, locked changed {before_locked}->{self.locked_tokens}, used changed {before_used}->{self.used_tokens}, total={total}/{self.tokens_per_minute}")
             return True
     
     async def release_tokens(self, app_id: str, request_id: str) -> bool:
@@ -130,11 +130,11 @@ class EmbeddingCounter:
         """
         async with self.lock:
             if request_id not in self.requests:
-                logger.error(f"EMBEDDING RELEASE ERROR: Invalid request ID {request_id} from {app_id}")
+                logger.error(f"EMBEDDING TOKEN RELEASE ERROR: Invalid request ID {request_id} from {app_id}")
                 return False
             
             if self.requests[request_id]["app_id"] != app_id:
-                logger.error(f"EMBEDDING RELEASE ERROR: App ID mismatch for request {request_id}: expected {self.requests[request_id]['app_id']}, got {app_id}")
+                logger.error(f"EMBEDDING TOKEN RELEASE ERROR: App ID mismatch for request {request_id}: expected {self.requests[request_id]['app_id']}, got {app_id}")
                 return False
             
             # Release the locked tokens
@@ -146,7 +146,7 @@ class EmbeddingCounter:
             del self.requests[request_id]
             
             total = self.used_tokens + self.locked_tokens
-            logger.info(f"EMBEDDING RELEASED: app={app_id}, request_id={request_id}, tokens={released_tokens}, locked changed {before_locked}->{self.locked_tokens}, total={total}/{self.tokens_per_minute}")
+            logger.info(f"EMBEDDING TOKEN RELEASED: app={app_id}, request_id={request_id}, tokens={released_tokens}, locked changed {before_locked}->{self.locked_tokens}, total={total}/{self.tokens_per_minute}")
             return True
     
     async def get_status(self) -> Dict[str, Any]:
@@ -164,7 +164,7 @@ class EmbeddingCounter:
             available_tokens = max(0, self.tokens_per_minute - (self.used_tokens + self.locked_tokens))
             total = self.used_tokens + self.locked_tokens
             
-            logger.info(f"EMBEDDING STATUS: used={self.used_tokens}, locked={self.locked_tokens}, total={total}/{self.tokens_per_minute}, available={available_tokens}, reset_in={int(seconds_until_reset)}s")
+            logger.info(f"EMBEDDING TOKEN STATUS: used={self.used_tokens}, locked={self.locked_tokens}, total={total}/{self.tokens_per_minute}, available={available_tokens}, reset_in={int(seconds_until_reset)}s")
             
             return {
                 "available_tokens": available_tokens,
