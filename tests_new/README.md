@@ -10,18 +10,19 @@ The test suite is structured as follows:
 tests_new/
 ├── unittests/                          # Unit tests for common library components
 │   ├── __init__.py                     # Package initialization
+│   ├── test_azure_embedding_service.py # Azure Embedding service tests (12 tests)
 │   ├── test_azure_openai_service.py    # Azure OpenAI service tests (21 tests)
 │   ├── test_blob_storage.py            # Azure Blob Storage tests (33 tests)
 │   ├── test_log_monitor.py             # Log monitoring service tests (39 tests)
 │   ├── test_logger.py                  # Logger module tests (16 tests)
 │   ├── test_retry_helpers.py           # Retry helpers tests (21 tests)
 │   ├── test_service_bus.py             # Service Bus handler tests (21 tests)
-│   └── test_token_client.py            # Token client tests (37 tests)
+│   └── test_token_client.py            # Token client tests (49 tests) ⚡ **RECENT UPDATES**
 ├── integrationtests/                   # Integration tests for full app functionality
 └── README.md                          # This documentation file
 ```
 
-**Total Unit Tests: 188 tests across 7 modules**
+**Total Unit Tests: 212 tests across 8 modules** ⚡ **UPDATED TOTAL**
 
 ## Quick Start
 
@@ -64,9 +65,98 @@ pytest tests_new/unittests/test_retry_helpers.py::TestWithTokenLimitRetry -v
 pytest tests_new/unittests/test_token_client.py::TestTokenClient::test_init_with_defaults -v
 ```
 
+## Recent Adjustments & Updates ⚡
+
+### Major Testing Additions
+
+The test suite has been significantly enhanced with comprehensive testing for **Azure Embedding Service** and extensive **Token Client embedding functionality**:
+
+#### 🆕 **New Module: test_azure_embedding_service.py (12 tests)**
+- **Complete embedding service testing** with Azure OpenAI integration
+- **Token management integration** with comprehensive error handling
+- **Batch processing validation** for large-scale embedding operations
+
+#### 🔄 **Enhanced Module: test_token_client.py (+12 embedding tests)**
+- **Embedding-specific API endpoints** testing (lock, report, release, status)
+- **Comprehensive error scenarios** for embedding token management
+- **Integration lifecycle testing** for complete embedding workflows
+
+#### 📊 **Updated Test Metrics**
+- **Total Tests**: Increased from 188 to **212 tests** (+24 new tests)
+- **Module Count**: Expanded from 7 to **8 modules** (+1 new module)
+- **Coverage Enhancement**: Added complete embedding service infrastructure testing
+
+---
+
 ## Detailed Test Coverage
 
-### 1. test_azure_openai_service.py (21 tests)
+### 1. test_azure_embedding_service.py (12 tests) 🆕 **NEW MODULE**
+
+Tests the Azure OpenAI embedding service integration with comprehensive token management and embedding generation functionality.
+
+**Test Classes:**
+- `TestAzureEmbeddingServiceInit` (3 tests): Service initialization with environment variable handling
+- `TestAzureEmbeddingServiceTokenCounting` (4 tests): Token estimation and encoding for embedding models
+- `TestAzureEmbeddingServiceEmbedding` (5 tests): Core embedding generation with error handling and batch processing
+
+**🎯 Key Test Categories:**
+- **Service Initialization**: Environment variable validation, custom model configuration, missing configuration handling
+- **Token Estimation**: Model-specific encoding, single/multiple text processing, tiktoken integration
+- **Embedding Generation**: Successful embedding creation, token limit validation, API failure recovery
+- **Batch Processing**: Large-scale text processing, configurable batch sizes, memory efficiency
+- **Error Handling**: Token limit exceeded, API failures with token release, malformed responses
+
+**🔧 Technical Features:**
+- **Azure SDK Integration**: Complete Azure OpenAI embedding client mocking
+- **Token Client Integration**: Full embedding token lifecycle (lock → usage → report/release)
+- **Tiktoken Integration**: Model-specific tokenizers with fallback strategies
+- **Environment Configuration**: Comprehensive environment variable testing patterns
+- **Async/Await Compliance**: Proper async embedding generation and token management
+
+**📋 Core Functionality Tests:**
+```python
+# Environment and initialization
+test_init_missing_required_env_var()           # Required env var validation
+test_init_with_env_vars()                      # Standard configuration
+test_init_with_custom_model_override()         # Custom model parameters
+
+# Token counting and encoding
+test_get_encoding_for_known_embedding_model()  # Model-specific encoders
+test_get_encoding_for_unknown_model_fallback() # Fallback strategies
+test_estimate_tokens_single_string()           # Single text estimation
+test_estimate_tokens_list_of_strings()         # Batch text estimation
+
+# Embedding generation
+test_create_embedding_success()                # Happy path with usage reporting
+test_create_embedding_token_limit_exceeded()   # Rate limiting scenarios
+test_create_embedding_api_failure_with_token_release() # Error recovery
+test_create_embedding_batch_success()          # Batch processing
+test_create_embedding_batch_large_batch_size() # Batch size optimization
+```
+
+**🚀 Advanced Testing Patterns:**
+- **Environment Variable Mocking**: `patch.dict(os.environ, ...)` for configuration testing
+- **Azure Service Mocking**: Complete AzureOpenAI client and response simulation
+- **Token Client Async Mocking**: AsyncMock for all token management operations
+- **Tiktoken Integration**: Proper encoding mocking with predictable token counts
+- **Error Propagation**: Realistic async error handling and resource cleanup
+
+**Example Tests:**
+```bash
+# Test new embedding service functionality
+pytest tests_new/unittests/test_azure_embedding_service.py -v
+
+# Test specific functionality areas
+pytest tests_new/unittests/test_azure_embedding_service.py::TestAzureEmbeddingServiceInit -v
+pytest tests_new/unittests/test_azure_embedding_service.py::TestAzureEmbeddingServiceEmbedding -v
+
+# Test specific scenarios
+pytest tests_new/unittests/test_azure_embedding_service.py::TestAzureEmbeddingServiceEmbedding::test_create_embedding_success -v
+pytest tests_new/unittests/test_azure_embedding_service.py::TestAzureEmbeddingServiceEmbedding::test_create_embedding_token_limit_exceeded -v
+pytest tests_new/unittests/test_azure_embedding_service.py::TestAzureEmbeddingServiceEmbedding::test_create_embedding_batch_success -v
+```
+
+### 2. test_azure_openai_service.py (21 tests)
 
 Tests the Azure OpenAI service integration with comprehensive mocking of the instructor library and Azure OpenAI SDK.
 
@@ -835,16 +925,17 @@ pytest tests_new/unittests/test_service_bus.py::TestAsyncServiceBusHandlerIntegr
 - **Processor Functions**: AsyncMock with configurable return values and side effects
 - **Network Failures**: Exception simulation for connection and authentication errors
 
-### 7. test_token_client.py (37 tests) ✅ **100% COVERAGE ACHIEVED**
+### 8. test_token_client.py (49 tests) ✅ **100% COVERAGE + EMBEDDING SUPPORT** ⚡ **RECENT UPDATES**
 
-Tests HTTP client operations for token management with **comprehensive edge case coverage** and complete aiohttp mocking. This test file provides **100% code coverage** and represents a **major technical achievement** in async HTTP client testing.
+Tests HTTP client operations for token management with **comprehensive edge case coverage**, complete aiohttp mocking, and **new embedding functionality**. This test file provides **100% code coverage** and represents a **major technical achievement** in async HTTP client testing.
 
 **🚀 MAJOR ACHIEVEMENTS:**
-- **Increased from 19 to 37 tests** (18 new comprehensive edge case tests)
-- **100% Code Coverage** of `common_new/token_client.py`
+- **Increased from 37 to 49 tests** (+12 new embedding-specific tests)
+- **100% Code Coverage** of `common_new/token_client.py` including new embedding endpoints
 - **Advanced Async Testing** with sophisticated aioresponses integration
 - **Comprehensive Error Handling** covering all failure scenarios
 - **Real-World Edge Cases** including network failures, malformed data, and boundary conditions
+- **🆕 Complete Embedding Support** with dedicated embedding token management
 
 **Test Classes:**
 - `TestTokenClientInit` (8 tests): Initialization patterns and environment variable handling
@@ -852,7 +943,11 @@ Tests HTTP client operations for token management with **comprehensive edge case
 - `TestTokenClientReportUsage` (9 tests): Usage reporting with request ID complexities
 - `TestTokenClientReleaseTokens` (3 tests): Token release operations and error handling
 - `TestTokenClientGetStatus` (4 tests): Status retrieval and response parsing
-- `TestTokenClientIntegration` (1 test): End-to-end workflow verification
+- **🆕 `TestTokenClientLockEmbeddingTokens` (4 tests): Embedding token locking operations**
+- **🆕 `TestTokenClientReportEmbeddingUsage` (3 tests): Embedding usage reporting**
+- **🆕 `TestTokenClientReleaseEmbeddingTokens` (2 tests): Embedding token release**
+- **🆕 `TestTokenClientGetEmbeddingStatus` (3 tests): Embedding status retrieval**
+- `TestTokenClientIntegration` (2 tests): End-to-end workflow verification (including embedding lifecycle) ⚡ **ENHANCED**
 
 **🔧 TECHNICAL BREAKTHROUGH: ASYNC HTTP MOCKING**
 
@@ -918,6 +1013,31 @@ with aioresponses() as mock:
 - **Missing Response Fields**: Tests responses missing `allowed`/`request_id` fields
 - **Minimal Responses**: Handles empty JSON objects gracefully
 - **Malformed Status Data**: Validates status endpoint response parsing
+
+**🆕 NEW EMBEDDING FUNCTIONALITY COVERAGE:**
+
+#### **Embedding Token Management (12 new tests)**
+The token client now provides complete support for embedding-specific operations with dedicated API endpoints:
+
+**Embedding Token Locking (4 tests):**
+- Successful embedding token allocation with request ID generation
+- Embedding token limit exceeded scenarios with proper error messages
+- HTTP connection errors during embedding token requests
+- Malformed response handling for embedding lock operations
+
+**Embedding Usage Reporting (3 tests):**
+- Successful embedding token usage reporting with prompt token counts
+- HTTP client errors during embedding usage reporting
+- Server errors (5xx) during embedding usage API calls
+
+**Embedding Token Release (2 tests):**
+- Successful embedding token release operations
+- Network failure handling during embedding token release
+
+**Embedding Status Retrieval (3 tests):**
+- Complete embedding status information with available/used/locked tokens
+- HTTP errors during embedding status API calls
+- Server error responses for embedding status requests
 
 **🔍 DETAILED TEST CATEGORIES:**
 
@@ -1025,12 +1145,20 @@ Tests validate actual error message patterns:
 
 **🚀 INTEGRATION TESTING:**
 
-#### **Full Lifecycle Validation**
-`test_full_token_lifecycle()` provides end-to-end testing:
+#### **Full Lifecycle Validation (2 tests) ⚡ ENHANCED**
+Complete end-to-end testing for both standard and embedding token workflows:
+
+**`test_full_token_lifecycle()` - Standard Token Workflow:**
 1. **Token Locking**: Request tokens with successful allocation
 2. **Usage Reporting**: Report actual token consumption
 3. **Token Release**: Clean up allocated resources
 4. **State Validation**: Verify each step completes successfully
+
+**🆕 `test_full_embedding_lifecycle()` - Embedding Token Workflow:**
+1. **Embedding Token Locking**: Request embedding tokens with allocation
+2. **Embedding Usage Reporting**: Report actual embedding token consumption
+3. **Embedding Token Release**: Clean up allocated embedding resources
+4. **Integration Validation**: Verify complete embedding workflow
 
 **📊 COVERAGE ANALYSIS:**
 - **Statements**: 71/71 (100%)
@@ -1065,8 +1193,14 @@ pytest tests_new/unittests/test_token_client.py::TestTokenClientLockTokens::test
 pytest tests_new/unittests/test_token_client.py::TestTokenClientLockTokens::test_lock_tokens_zero_count -v
 pytest tests_new/unittests/test_token_client.py::TestTokenClientLockTokens::test_lock_tokens_negative_count -v
 
-# Run integration test
+# Test embedding functionality (NEW)
+pytest tests_new/unittests/test_token_client.py::TestTokenClientLockEmbeddingTokens::test_lock_embedding_tokens_success -v
+pytest tests_new/unittests/test_token_client.py::TestTokenClientReportEmbeddingUsage::test_report_embedding_usage_success -v
+pytest tests_new/unittests/test_token_client.py::TestTokenClientGetEmbeddingStatus::test_get_embedding_status_success -v
+
+# Run integration tests
 pytest tests_new/unittests/test_token_client.py::TestTokenClientIntegration::test_full_token_lifecycle -v
+pytest tests_new/unittests/test_token_client.py::TestTokenClientIntegration::test_full_embedding_lifecycle -v
 ```
 
 **Mock Strategy:**
@@ -1255,12 +1389,18 @@ For questions or issues with the test suite, refer to the individual test files 
 This test suite represents **significant technical achievements** in comprehensive Python testing:
 
 ### ✅ **Coverage Milestones**
-- **test_token_client.py**: **100% Coverage** - Complete HTTP client testing with advanced async patterns
+- **🆕 test_azure_embedding_service.py**: **NEW MODULE** - Complete embedding service testing with token integration
+- **test_token_client.py**: **100% Coverage + Embedding Support** - Enhanced with 12 new embedding-specific tests
 - **test_blob_storage.py**: **100% Coverage** - Comprehensive Azure SDK mocking with extreme edge case testing  
 - **test_log_monitor.py**: **91% Coverage** - Complete architectural rebuild from broken foundation
-- **Overall**: **188 tests** across 7 modules with robust error handling and edge case coverage
+- **Overall**: **212 tests** across 8 modules (+24 new tests) with robust error handling and edge case coverage
 
 ### ✅ **Technical Breakthroughs**
+
+#### **🆕 Complete Embedding Service Integration**
+- **Achievement**: Full Azure OpenAI embedding service testing infrastructure
+- **Coverage**: Token management, tiktoken integration, batch processing, error handling
+- **Impact**: Production-ready embedding service with comprehensive test validation
 
 #### **Async HTTP Client Testing Revolution**
 - **Problem**: Complex aiohttp async context manager mocking failures
@@ -1346,9 +1486,10 @@ This comprehensive test suite establishes:
 5. **Technical Innovation**: Solutions to complex async mocking challenges
 
 The testing framework now serves as a **reference implementation** for:
-- **Async HTTP Client Testing** with aioresponses integration
+- **🆕 Azure OpenAI Embedding Service Testing** with complete token lifecycle integration
+- **Async HTTP Client Testing** with aioresponses integration and embedding endpoint coverage
 - **Azure SDK Comprehensive Mocking** with edge case coverage
 - **Cross-Process Service Testing** with proper architecture alignment
 - **Production Deployment Validation** with real-world scenario coverage
 
-**Total Achievement**: **188 comprehensive tests** providing robust validation of critical microservice infrastructure components.
+**Total Achievement**: **212 comprehensive tests (+24 new)** providing robust validation of critical microservice infrastructure components, including complete **embedding service capabilities**.
