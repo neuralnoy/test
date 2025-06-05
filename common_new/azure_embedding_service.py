@@ -122,8 +122,7 @@ class AzureEmbeddingService:
     async def create_embedding(
         self,
         text: Union[str, List[str]],
-        model: Optional[str] = None,
-        user: Optional[str] = None
+        model: Optional[str] = None
     ) -> List[List[float]]:
         """
         Create embeddings for the given text(s).
@@ -131,7 +130,6 @@ class AzureEmbeddingService:
         Args:
             text: Text string or list of text strings to embed
             model: Model to use (defaults to self.default_model)
-            user: Optional user identifier for tracking
             
         Returns:
             List[List[float]]: List of embedding vectors
@@ -144,10 +142,8 @@ class AzureEmbeddingService:
         # Ensure text is a list for consistent processing
         if isinstance(text, str):
             texts = [text]
-            single_text = True
         else:
             texts = text
-            single_text = False
         
         # Estimate token usage
         estimated_tokens = self._estimate_tokens(texts, model)
@@ -162,11 +158,10 @@ class AzureEmbeddingService:
         try:
             logger.debug(f"Creating embeddings for {len(texts)} text(s) using model: {model}")
             
-            # Create embeddings
+            # Create embeddings - clean call without user parameter
             response = self.client.embeddings.create(
                 model=model,
-                input=texts,
-                user=user
+                input=texts
             )
             
             # Report actual embedding token usage
@@ -181,7 +176,6 @@ class AzureEmbeddingService:
             
             logger.debug(f"Successfully created {len(embeddings)} embeddings")
             
-            # Always return list of embeddings for consistency
             return embeddings
             
         except Exception as e:
@@ -194,8 +188,7 @@ class AzureEmbeddingService:
         self,
         texts: List[str],
         model: Optional[str] = None,
-        batch_size: int = 100,
-        user: Optional[str] = None
+        batch_size: int = 100
     ) -> List[List[float]]:
         """
         Create embeddings for a large batch of texts, processing in smaller chunks.
@@ -204,7 +197,6 @@ class AzureEmbeddingService:
             texts: List of text strings to embed
             model: Model to use (defaults to self.default_model)
             batch_size: Number of texts to process in each batch
-            user: Optional user identifier for tracking
             
         Returns:
             List[List[float]]: List of embedding vectors
@@ -217,8 +209,7 @@ class AzureEmbeddingService:
             
             batch_embeddings = await self.create_embedding(
                 text=batch,
-                model=model,
-                user=user
+                model=model
             )
             
             all_embeddings.extend(batch_embeddings)
