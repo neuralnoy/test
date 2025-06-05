@@ -43,6 +43,62 @@ response = await ai_service.send_prompt(
 )
 ```
 
+### Azure Embedding Service
+A specialized client for generating text embeddings using Azure-hosted OpenAI embedding models.
+
+#### Technical Details
+- **Class**: `AzureEmbeddingService`
+- **File**: `azure_embedding_service.py`
+- **Authentication**: Uses Azure Identity with `DefaultAzureCredential` for secure authentication (identical to main OpenAI service)
+- **Token Management**: Integrates with `TokenClient` for embedding-specific token tracking and rate limiting
+- **Separate Configuration**: Independent endpoint, API version, and model configuration from completion services
+- **Service Separation**: Dedicated service for embedding operations with separate quotas and limits
+
+#### Methods
+- `__init__(model, app_id, token_counter_url)`: Initializes the embedding service with specified parameters
+- `create_embedding(text, model)`: Creates embeddings for single or multiple texts with token tracking
+- `create_embedding_batch(texts, model, batch_size)`: Processes large batches of texts with chunking support
+- `_estimate_tokens(texts, model)`: Estimates token usage using tiktoken for accurate pre-allocation
+- `_get_encoding_for_model(model)`: Gets appropriate tokenizer for embedding models (cl100k_base)
+
+#### Token Handling
+- Uses `tiktoken` with cl100k_base encoding for embedding model token counting
+- Implements separate embedding token limits independent of completion tokens
+- Reports actual embedding token usage from Azure OpenAI API responses
+- Supports batch processing with proper token allocation per batch
+
+#### Environment Variables
+```bash
+# Required
+APP_EMBEDDING_API_BASE=https://your-embedding-endpoint.openai.azure.com/
+COUNTER_APP_BASE_URL=http://token-counter:8000
+
+# Optional (with defaults)
+APP_EMBEDDING_API_VERSION=2024-02-01
+APP_EMBEDDING_ENGINE=text-embedding-3-large
+APP_EMBEDDING_TPM_QUOTA=1000000
+APP_EMBEDDING_RPM_QUOTA=500
+```
+
+#### Usage
+```python
+from common.azure_embedding_service import AzureEmbeddingService
+
+# Initialize embedding service
+embedding_service = AzureEmbeddingService(app_id="my_app")
+
+# Create single embedding
+embedding = await embedding_service.create_embedding("Hello world")
+
+# Create multiple embeddings
+texts = ["Text 1", "Text 2", "Text 3"]
+embeddings = await embedding_service.create_embedding(texts)
+
+# Process large batch with chunking
+large_texts = ["Text {}".format(i) for i in range(1000)]
+embeddings = await embedding_service.create_embedding_batch(large_texts, batch_size=100)
+```
+
 ### Service Bus Handler
 An asynchronous handler for Azure Service Bus operations.
 
@@ -113,26 +169,35 @@ async def my_function():
 ```
 
 ### Token Client
-Client for interacting with the token counter service.
+Client for interacting with the token counter service supporting both completion and embedding operations.
 
 #### Technical Details
 - **Class**: `TokenClient`
 - **File**: `token_client.py`
 - **Authentication**: Optional Azure AD authentication for secure token service communication
-- **API**: Methods for locking, reporting, and releasing tokens
+- **Dual Service Support**: Methods for both completion and embedding token management
+- **Combined Request IDs**: Handles compound request IDs (token_id:rate_id format) for rate limiting
 
-#### Methods
+#### Completion Service Methods
 - `__init__(app_id, base_url, resource_uri, use_auth)`: Initializes the client with options for authentication
-- `lock_tokens(token_count)`: Requests token allocation from the token service
+- `lock_tokens(token_count)`: Requests token allocation from the completion token service
 - `report_usage(request_id, prompt_tokens, completion_tokens)`: Reports actual token usage after completion
-- `release_tokens(request_id)`: Releases locked tokens if not used
-- `get_status()`: Retrieves current token counter status with reset timing information
+- `release_tokens(request_id)`: Releases locked completion tokens if not used
+- `get_status()`: Retrieves current completion token counter status with reset timing information
+
+#### Embedding Service Methods
+- `lock_embedding_tokens(token_count)`: Requests token allocation from the embedding token service
+- `report_embedding_usage(request_id, prompt_tokens)`: Reports actual embedding token usage (prompt tokens only)
+- `release_embedding_tokens(request_id)`: Releases locked embedding tokens if not used
+- `get_embedding_status()`: Retrieves current embedding token counter status with reset timing information
 
 #### Features
-- Support for both token and rate limit tracking
-- Handles compound request IDs (token_id:rate_id format)
-- Detailed logging for debugging token issues
-- Proper error handling for service communication failures
+- **Dual Token Tracking**: Separate tracking for completion and embedding tokens with independent quotas
+- **Rate Limit Integration**: Support for both token and rate limit tracking with combined request IDs
+- **Service Separation**: Independent token pools for completion vs embedding operations
+- **Detailed Logging**: Comprehensive logging for debugging token issues across both services
+- **Error Handling**: Proper error handling for service communication failures
+- **Status Monitoring**: Real-time status information for both completion and embedding counters
 
 #### Usage
 ```python
@@ -141,11 +206,15 @@ from common.token_client import TokenClient
 # Initialize client
 client = TokenClient(app_id="my_app", base_url="http://token-counter:8000")
 
-# Lock tokens for usage
+# Completion service operations
 allowed, request_id, error = await client.lock_tokens(1000)
-
-# Report actual usage
 await client.report_usage(request_id, prompt_tokens=500, completion_tokens=200)
+status = await client.get_status()
+
+# Embedding service operations
+allowed, request_id, error = await client.lock_embedding_tokens(5000)
+await client.report_embedding_usage(request_id, prompt_tokens=5000)
+embedding_status = await client.get_embedding_status()
 ```
 
 ### Logger
@@ -283,6 +352,45 @@ All services and utilities are designed to work with asyncio for efficient resou
 ## Integration with Apps
 
 The common library is the foundation for the following applications:
-- **app_counter**: Uses common logger and provides token management services
-- **app_feedbackform**: Uses Azure OpenAI Service, Service Bus Handler, and retry logic
-- **app_reasoner**: Uses Azure OpenAI Service, Service Bus Handler, and retry logic
+- **app_counter**: Uses common logger and provides token management services for both completion and embedding operations
+- **app_feedbackform**: Uses Azure OpenAI Service, Azure Embedding Service, Service Bus Handler, and retry logic
+- **app_reasoner**: Uses Azure OpenAI Service, Azure Embedding Service, Service Bus Handler, and retry logic
+
+### Service Integration Patterns
+
+#### Completion + Embedding Services
+Applications requiring both text generation and embeddings can use both services independently:
+```python
+# Initialize both services with same app_id for unified tracking
+openai_service = AzureOpenAIService(app_id="my_app")
+embedding_service = AzureEmbeddingService(app_id="my_app")
+
+# Use appropriate service for each operation
+response = await openai_service.structured_prompt(...)
+embeddings = await embedding_service.create_embedding([...])
+```
+
+#### Token Counter Integration
+The token counter service provides separate quotas and tracking for:
+- **Completion Operations**: Token and request rate limiting for chat/completion APIs
+- **Embedding Operations**: Independent token and request rate limiting for embedding APIs
+- **Unified Monitoring**: Single counter app manages all token tracking with separate pools
+
+#### Environment Configuration
+Each application can configure completion and embedding services independently:
+```bash
+# Completion Service
+APP_OPENAI_API_BASE=https://completion-endpoint.openai.azure.com/
+APP_OPENAI_ENGINE=gpt-4
+APP_TPM_QUOTA=128000
+APP_RPM_QUOTA=250
+
+# Embedding Service  
+APP_EMBEDDING_API_BASE=https://embedding-endpoint.openai.azure.com/
+APP_EMBEDDING_ENGINE=text-embedding-3-large
+APP_EMBEDDING_TPM_QUOTA=1000000
+APP_EMBEDDING_RPM_QUOTA=500
+
+# Shared Counter Service
+COUNTER_APP_BASE_URL=http://token-counter:8000
+```
