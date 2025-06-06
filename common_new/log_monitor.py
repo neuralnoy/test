@@ -31,7 +31,8 @@ class LogMonitorService:
         process_name: Optional[str] = None,
         retention_days: int = 7,
         scan_interval: int = 60,
-        enable_orphan_cleanup: bool = True
+        enable_orphan_cleanup: bool = True,
+        delete_after_upload: bool = True
     ):
         self.logs_dir = logs_dir
         
@@ -49,6 +50,7 @@ class LogMonitorService:
         self.retention_days = retention_days
         self.scan_interval = scan_interval
         self.enable_orphan_cleanup = enable_orphan_cleanup
+        self.delete_after_upload = delete_after_upload
         
         # State
         self.uploader = None
@@ -73,7 +75,8 @@ class LogMonitorService:
         # Create the uploader
         self.uploader = AsyncBlobStorageUploader(
             account_url=self.account_url,
-            container_name=self.container_name
+            container_name=self.container_name,
+            delete_after_upload=self.delete_after_upload
         )
         
         # Initialize the uploader

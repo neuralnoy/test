@@ -20,7 +20,8 @@ class AsyncBlobStorageUploader:
         account_url: str,
         container_name: str,
         max_retries: int = 5,
-        retry_delay: float = 2.0
+        retry_delay: float = 2.0,
+        delete_after_upload: bool = True
     ):
         """
         Initialize the Azure Blob Storage uploader.
@@ -30,11 +31,13 @@ class AsyncBlobStorageUploader:
             container_name: Name of the container to store uploaded files
             max_retries: Maximum number of retry attempts for failed uploads
             retry_delay: Base delay between retries in seconds (uses exponential backoff)
+            delete_after_upload: Whether to delete files from local storage after successful upload
         """
         self.account_url = account_url
         self.container_name = container_name
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.delete_after_upload = delete_after_upload
         self._initialized = False
         self._upload_queue = asyncio.Queue()
         self._upload_task = None
@@ -139,6 +142,18 @@ class AsyncBlobStorageUploader:
                     if success:
                         logger.info(f"Successfully uploaded {file_path} to blob storage")
                         self._processed_files.add(file_path)
+                        
+                        # Delete the file after successful upload
+                        if self.delete_after_upload:
+                            try:
+                                os.remove(file_path)
+                                logger.info(f"Successfully deleted {file_path} from local storage")
+                            except FileNotFoundError:
+                                logger.warning(f"File {file_path} was already deleted")
+                            except PermissionError:
+                                logger.error(f"Permission denied when trying to delete {file_path}")
+                            except Exception as e:
+                                logger.error(f"Error deleting {file_path}: {str(e)}")
                     else:
                         logger.error(f"Failed to upload {file_path}")
                         

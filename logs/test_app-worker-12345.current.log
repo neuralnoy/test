@@ -1,1 +1,0 @@
-2025-06-01 17:11:33.613 | INFO | test_process_name_unique | [MainProcess-12345] | [MainThread-8551128832] | logger.py:95 | Process 12345 (worker-12345) logging to /Users/arstep/Desktop/forms/logs/test_app-worker-12345.current.log
