@@ -1,62 +1,71 @@
-from pydantic import BaseModel, Field, validator
-from typing import Literal
+from pydantic import BaseModel, Field
+from typing import Optional, List, Literal
 
 class InputReasoner(BaseModel):
     id: str
-    taskId: str
-    language: str
+    taskId: Optional[str] = None
+    language: Optional[str] = None
     text: str
 
-class OutputReasoner(BaseModel):
-    id: str
-    taskId: str
-    ai_reason: str
-    reason: str
-    summary: str
-    message: str
+class Speaker(BaseModel):
+    speaker_1: Optional[Literal["Agent", "Client"]] = Field(
+        None, 
+        description="Identifies whether Speaker 1 is an Agent or Client. Leave None if uncertain."
+    )
+    speaker_2: Optional[Literal["Agent", "Client"]] = Field(
+        None, 
+        description="Identifies whether Speaker 2 is an Agent or Client. Leave None if uncertain."
+    )
 
-class InternalReasonerResult(BaseModel):
-    id: str
-    taskId: str
-    ai_reason: str
-    reason: str
+class ResolutionFlag(BaseModel):
+    resolution_type: Literal["CLIENT MANAGER", "BRANCH", "SELF SERVICE", "RESOLVED", "OTHER"] = Field(
+        description=(
+            "Identifies the resolution scenario that best describes the transcript outcome:\n"
+            "- CLIENT MANAGER: The client is redirected to another client manager\n"
+            "- BRANCH: The client was introduced to go to the UBS branch\n"
+            "- SELF SERVICE: The client was introduced to go to the UBS website or mobile app\n"
+            "- RESOLVED: The client's problem is resolved with no further action needed\n"
+            "- OTHER: Any other scenario not covered by the above options"
+        )
+    )
+
+class SelfServiceFlag(BaseModel):
+    tried_self_service: Literal["Yes", "No"] = Field(
+        description="Indicates whether the client tried to use self service on website or digital banking"
+    )
+
+class FurtherSentiment(BaseModel):
+    pass
+
+class ReasonerProcessingResponse(BaseModel):
+    """Pydantic model for validating OpenAI call transcript processing responses."""
+    category: str
+    product: str
+    product_category: str
+    product_topic: str
+    call_reason: str
     summary: str
-    message: str
+    summary_native: str
+    call_triggers: str
+    call_triggers_native: str
+    caller_authentication: str
+    call_flags: str
+    sentiment: str
+    ai_generated: str
+    speaker: Speaker
+    resolution: Resolution
+    resolution_flag: ResolutionFlag
+    live_help: str
+    client_lifecycle_event: str
+    self_service: SelfServiceFlag
+    ai_hashtags: str
+    hashtags: str
+    ai_hashtags_native: str
+    further_sentiment: FurtherSentiment
     contains_pii_or_cid: str
 
-class CallProcessingResponse(BaseModel):
-    """Pydantic model for validating OpenAI call transcript processing responses."""
+
+
+class OutputReasoner(BaseModel):
+    pass
     
-    summary: str = Field(
-        description="Concise summary of the call transcript with all PII removed",
-        min_length=5,
-        max_length=500
-    )
-    
-    reason: str = Field(
-        description="Predefined reason from the provided list",
-        pattern=r"^#\w+$"
-    )
-    
-    ai_reason: str = Field(
-        description="AI-generated reason relevant to the call transcript",
-        pattern=r"^#\w+$"
-    )
-    
-    contains_pii_or_cid: Literal["Yes", "No"] = Field(
-        description="Whether the original call transcript contains PII or CID"
-    )
-    
-    @validator('reason')
-    def validate_reason_starts_with_hash(cls, v):
-        """Ensure reason starts with #."""
-        if not v.startswith('#'):
-            raise ValueError("Reason must start with #")
-        return v
-    
-    @validator('ai_reason')
-    def validate_ai_reason_starts_with_hash(cls, v):
-        """Ensure AI reason starts with #."""
-        if not v.startswith('#'):
-            raise ValueError("AI reason must start with #")
-        return v 

@@ -394,3 +394,94 @@ APP_EMBEDDING_RPM_QUOTA=500
 # Shared Counter Service
 COUNTER_APP_BASE_URL=http://token-counter:8000
 ```
+
+### Azure AI Search Service
+A comprehensive service for Azure AI Search operations including document indexing and vector search.
+
+#### Technical Details
+- **Class**: `AzureSearchService`
+- **File**: `azure_search_service.py`
+- **Authentication**: Uses Azure Identity with `DefaultAzureCredential` for secure authentication
+- **Index Management**: Supports multiple search indexes with configurable index names
+- **Search Types**: Supports both traditional text search and vector search capabilities
+
+#### Methods
+- `__init__(index_name, app_id)`: Initializes the service with specified index and application ID
+- `upload_documents(documents)`: Upload or update documents in the search index
+- `search_documents(search_text, top, select, filter_expression, order_by)`: Perform text-based search
+- `vector_search(vector, vector_field, top, select, filter_expression)`: Perform vector similarity search
+- `get_document(document_key, selected_fields)`: Retrieve a single document by key
+- `delete_documents(documents)`: Delete documents from the index
+- `get_document_count()`: Get total number of documents in the index
+- `close()`: Clean up search client connections
+
+#### Features
+- **Multi-Index Support**: Can work with different indexes for different applications
+- **Vector Search**: Native support for vector similarity search using embeddings
+- **Text Search**: Traditional full-text search with Azure's cognitive search capabilities
+- **Document Management**: Complete CRUD operations for search documents
+- **Error Handling**: Comprehensive error handling with proper exception propagation
+- **Resource Management**: Proper cleanup of search client connections
+
+#### Environment Variables
+```bash
+# Required
+APP_SEARCH_ENDPOINT=https://your-search-service.search.windows.net
+```
+
+#### Usage
+```python
+from common_new.azure_search_service import AzureSearchService
+
+# Initialize search service
+search_service = AzureSearchService(
+    index_name="my-documents",
+    app_id="my_app"
+)
+
+# Upload documents
+documents = [
+    {"id": "1", "title": "AI Overview", "content": "AI is transforming..."},
+    {"id": "2", "title": "ML Basics", "content": "Machine learning..."}
+]
+await search_service.upload_documents(documents)
+
+# Text search
+results = await search_service.search_documents("machine learning", top=5)
+
+# Vector search (requires vector field in documents)
+vector_results = await search_service.vector_search(
+    vector=[0.1, 0.2, 0.3, ...],  # Your query vector
+    vector_field="content_vector",
+    top=10
+)
+
+# Get specific document
+document = await search_service.get_document("1")
+
+# Clean up
+search_service.close()
+```
+
+#### Integration with Embedding Service
+The Azure Search Service works seamlessly with the existing `AzureEmbeddingService` for vector search scenarios:
+
+```python
+from common_new.azure_search_service import AzureSearchService
+from common_new.azure_embedding_service import AzureEmbeddingService
+
+# Initialize both services
+search_service = AzureSearchService(index_name="vectors", app_id="my_app")
+embedding_service = AzureEmbeddingService(app_id="my_app")
+
+# Generate embedding for query
+query_text = "artificial intelligence applications"
+query_embedding = await embedding_service.create_embedding(query_text)
+
+# Perform vector search
+results = await search_service.vector_search(
+    vector=query_embedding[0],
+    vector_field="content_vector",
+    top=5
+)
+```
