@@ -1,10 +1,9 @@
 # data_processor.py
 import json
-import asyncio
 from typing import Dict, Any, Optional
 from common_new.logger import get_logger
 from app_feedbackform.models.schemas import InputFeedbackForm, OutputFeedbackForm, InternalFeedbackResult
-from app_feedbackform.services.prompts.feedback_processor import process_feedback, process_feedback_structured
+from app_feedbackform.services.prompts.feedback_processor import process_feedback_structured
 
 logger = get_logger("feedback_form_processor")
 
