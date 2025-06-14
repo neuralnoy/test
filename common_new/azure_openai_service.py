@@ -4,7 +4,10 @@ Azure OpenAI Service for making API calls to Azure-hosted OpenAI models.
 import os
 import tiktoken
 import instructor
+import asyncio
+import time
 from typing import Dict, List, Any, Optional, TypeVar, Type
+from collections import deque
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from openai import AzureOpenAI
@@ -22,6 +25,81 @@ COUNTER_BASE_URL = os.getenv("COUNTER_APP_BASE_URL")
 
 # Type variable for Pydantic models
 T = TypeVar('T', bound=BaseModel)
+
+class WhisperRateLimiter:
+    """
+    Rate limiter specifically designed for Azure OpenAI Whisper API requests.
+    Tracks requests per minute with sliding window approach.
+    Thread-safe and async-compatible.
+    """
+    def __init__(self, requests_per_minute: int = 15):
+        """
+        Initialize Whisper API rate limiter.
+        
+        Args:
+            requests_per_minute: Maximum Whisper API requests allowed per minute (default: 50)
+        """
+        self.requests_per_minute = requests_per_minute
+        self.requests = deque()
+        self._lock = asyncio.Lock()
+        
+    async def can_make_request(self) -> bool:
+        """
+        Check if a Whisper API request can be made without exceeding rate limit.
+        
+        Returns:
+            bool: True if Whisper request can be made, False otherwise
+        """
+        async with self._lock:
+            now = time.time()
+            
+            # Remove requests older than 1 minute
+            while self.requests and now - self.requests[0] > 60:
+                self.requests.popleft()
+            
+            # Check if we can make another request
+            return len(self.requests) < self.requests_per_minute
+    
+    async def record_request(self) -> None:
+        """
+        Record that a Whisper API request was made.
+        """
+        async with self._lock:
+            self.requests.append(time.time())
+    
+    async def wait_for_availability(self) -> None:
+        """
+        Wait until a Whisper API request can be made without exceeding rate limit.
+        """
+        while not await self.can_make_request():
+            # Calculate how long to wait
+            async with self._lock:
+                if self.requests:
+                    oldest_request = self.requests[0]
+                    wait_time = 60 - (time.time() - oldest_request) + 1  # Add 1 second buffer
+                    wait_time = max(1, wait_time)  # Wait at least 1 second
+                else:
+                    wait_time = 1
+            
+            logger.info(f"Whisper API rate limit reached, waiting {wait_time:.1f} seconds")
+            await asyncio.sleep(wait_time)
+    
+    def get_current_usage(self) -> Dict[str, Any]:
+        """
+        Get current Whisper API rate limit usage statistics.
+        
+        Returns:
+            Dict with current Whisper API usage information
+        """
+        now = time.time()
+        # Count requests in the last minute
+        recent_requests = sum(1 for req_time in self.requests if now - req_time <= 60)
+        
+        return {
+            "requests_in_last_minute": recent_requests,
+            "requests_per_minute_limit": self.requests_per_minute,
+            "utilization_percentage": (recent_requests / self.requests_per_minute) * 100
+        }
 
 class AzureOpenAIService:
     """
@@ -338,4 +416,252 @@ class AzureOpenAIService:
             return await with_token_limit_retry(_do_structured_prompt, self.token_client)
         except Exception as e:
             logger.error(f"Error in structured prompt: {str(e)}")
-            raise 
+            raise
+
+class AzureOpenAIServiceWhisper(AzureOpenAIService):
+    """
+    Service for interacting with Azure-hosted OpenAI Whisper models.
+    Provides functionality for audio transcription with proper rate limiting and error handling.
+    """
+    def __init__(self, model: Optional[str] = None, app_id: str = "default_app"):
+        super().__init__(model=model, app_id=app_id)
+        
+        self.api_version = os.getenv("APP_OPENAI_API_VERSION")
+        self.azure_endpoint = os.getenv("APP_OPENAI_API_BASE")
+        self.default_model = model or os.getenv("APP_OPENAI_ENGINE")
+        self.app_id = app_id
+        
+        # Initialize rate limiter for Whisper API
+        whisper_rpm = int(os.getenv("WHISPER_REQUESTS_PER_MINUTE", "15"))
+        self.rate_limiter = WhisperRateLimiter(requests_per_minute=whisper_rpm)
+        logger.info(f"Initialized Whisper rate limiter with {whisper_rpm} requests per minute")
+        
+        # Initialize a separate client for audio operations
+        self._audio_client = None
+        
+    def _initialize_audio_client(self) -> AzureOpenAI:
+        """
+        Initialize the Azure OpenAI client specifically for audio operations.
+        """
+        if self._audio_client is None:
+            token_provider = get_bearer_token_provider(
+                DefaultAzureCredential(), 
+                "https://cognitiveservices.azure.com/.default"
+            )
+            
+            self._audio_client = AzureOpenAI(
+                api_version=self.api_version,
+                azure_endpoint=self.azure_endpoint,
+                azure_ad_token_provider=token_provider,
+            )
+            
+        return self._audio_client
+    
+    async def transcribe_audio(
+        self,
+        audio_file_path: str,
+        language: Optional[str] = None,
+        prompt: Optional[str] = None,
+        response_format: str = "json",
+        temperature: float = 0.0,
+        timestamp_granularities: Optional[List[str]] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Transcribe audio file using Azure OpenAI Whisper.
+        
+        Args:
+            audio_file_path: Path to the audio file to transcribe
+            language: Language of the audio (ISO-639-1 format, e.g., 'en', 'es')
+            prompt: Optional text to guide the model's style or continue a previous audio segment
+            response_format: Format of the response ('json', 'text', 'srt', 'verbose_json', 'vtt')
+            temperature: Sampling temperature (0 to 1)
+            timestamp_granularities: List of timestamp granularities ('word', 'segment')
+            **kwargs: Additional parameters for the transcription
+            
+        Returns:
+            Dict containing transcription results
+            
+        Raises:
+            FileNotFoundError: If audio file doesn't exist
+            ValueError: If file format is not supported
+            Exception: For other API errors
+        """
+        if not os.path.exists(audio_file_path):
+            raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
+        
+        # Validate audio file before processing
+        if not self.validate_audio_file(audio_file_path):
+            raise ValueError(f"Invalid audio file: {audio_file_path}")
+        
+        # Wait for rate limit availability
+        await self.rate_limiter.wait_for_availability()
+        
+        try:
+            logger.info(f"Starting audio transcription for file: {audio_file_path}")
+            
+            # Record the request for rate limiting
+            await self.rate_limiter.record_request()
+            
+            # Initialize audio client
+            client = self._initialize_audio_client()
+            
+            # Prepare transcription parameters
+            transcription_params = {
+                "model": self.default_model,
+                "response_format": response_format,
+                "temperature": temperature,
+            }
+            
+            if language:
+                transcription_params["language"] = language
+            if prompt:
+                transcription_params["prompt"] = prompt
+            if timestamp_granularities:
+                transcription_params["timestamp_granularities"] = timestamp_granularities
+            
+            # Add any additional parameters
+            transcription_params.update(kwargs)
+            
+            # Open and transcribe the audio file
+            with open(audio_file_path, "rb") as audio_file:
+                logger.debug(f"Sending transcription request with params: {transcription_params}")
+                
+                response = client.audio.transcriptions.create(
+                    file=audio_file,
+                    **transcription_params
+                )
+            
+            # Process response based on format
+            if response_format == "json" or response_format == "verbose_json":
+                result = response.model_dump() if hasattr(response, 'model_dump') else response
+            else:
+                # For text, srt, vtt formats, response is a string
+                result = {"text": str(response)}
+            
+            logger.info(f"Successfully transcribed audio file: {audio_file_path}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in audio transcription: {str(e)}")
+            raise
+    
+    async def transcribe_audio_with_retry(
+        self,
+        audio_file_path: str,
+        max_retries: int = 3,
+        retry_delay: float = 2.0,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Transcribe audio with retry logic for handling transient failures.
+        
+        Args:
+            audio_file_path: Path to the audio file to transcribe
+            max_retries: Maximum number of retry attempts
+            retry_delay: Base delay between retries in seconds (uses exponential backoff)
+            **kwargs: Additional parameters passed to transcribe_audio
+            
+        Returns:
+            Dict containing transcription results
+        """
+        last_exception = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                return await self.transcribe_audio(audio_file_path, **kwargs)
+            except Exception as e:
+                last_exception = e
+                
+                if attempt < max_retries:
+                    wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"Transcription attempt {attempt + 1} failed: {str(e)}. Retrying in {wait_time} seconds")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"All {max_retries + 1} transcription attempts failed")
+        
+        # If we get here, all retries failed
+        raise last_exception
+    
+    async def transcribe_audio_chunks(
+        self,
+        audio_file_paths: List[str],
+        **kwargs
+    ) -> List[Dict[str, Any]]:
+        """
+        Transcribe multiple audio chunks concurrently.
+        
+        Args:
+            audio_file_paths: List of paths to audio files to transcribe
+            **kwargs: Additional parameters passed to transcribe_audio
+            
+        Returns:
+            List of transcription results in the same order as input files
+        """
+        import asyncio
+        
+        logger.info(f"Starting concurrent transcription of {len(audio_file_paths)} audio chunks")
+        
+        # Create transcription tasks
+        tasks = []
+        for audio_path in audio_file_paths:
+            task = self.transcribe_audio_with_retry(audio_path, **kwargs)
+            tasks.append(task)
+        
+        try:
+            # Execute all transcriptions concurrently
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Process results and handle any exceptions
+            processed_results = []
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"Failed to transcribe chunk {i} ({audio_file_paths[i]}): {str(result)}")
+                    processed_results.append({
+                        "error": str(result),
+                        "text": "",
+                        "file_path": audio_file_paths[i]
+                    })
+                else:
+                    processed_results.append(result)
+            
+            logger.info(f"Completed transcription of {len(audio_file_paths)} audio chunks")
+            return processed_results
+            
+        except Exception as e:
+            logger.error(f"Error in concurrent audio transcription: {str(e)}")
+            raise
+    
+    def validate_audio_file(self, audio_file_path: str) -> bool:
+        """
+        Validate audio file format and size.
+        
+        Args:
+            audio_file_path: Path to the audio file
+            
+        Returns:
+            bool: True if file is valid, False otherwise
+        """
+        if not os.path.exists(audio_file_path):
+            logger.error(f"Audio file does not exist: {audio_file_path}")
+            return False
+        
+        # Check file size (Whisper has a 25MB limit)
+        file_size = os.path.getsize(audio_file_path)
+        max_size = 25 * 1024 * 1024  # 25MB in bytes
+        
+        if file_size > max_size:
+            logger.error(f"Audio file too large: {file_size} bytes (max: {max_size} bytes)")
+            return False
+        
+        # Check file extension
+        supported_formats = {'.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm'}
+        file_extension = os.path.splitext(audio_file_path)[1].lower()
+        
+        if file_extension not in supported_formats:
+            logger.error(f"Unsupported audio format: {file_extension}")
+            return False
+        
+        logger.debug(f"Audio file validation passed: {audio_file_path}")
+        return True
+    

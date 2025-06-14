@@ -485,3 +485,203 @@ results = await search_service.vector_search(
     top=5
 )
 ```
+
+# Async Service Bus Handler for AI-powered Microservices
+
+A robust, asynchronous framework for building AI-powered microservices that process data from dedicated input queues and send processed results to output queues. This framework includes comprehensive token rate limit management for Azure OpenAI integrations and specialized audio processing capabilities.
+
+## System Architecture
+
+The system consists of the following main components:
+
+1. **Feedback Form Processing Service** - Processes customer feedback using AI
+2. **Whisper Audio Processing Service** - Transcribes and processes audio files using Azure OpenAI Whisper
+3. **Token Counter Service** - Manages token rate limits for Azure OpenAI API calls
+4. **Common Library** - Shared components used across all services
+
+### High-Level Flow
+
+```
+Data (Feedback, Audio, etc.) -> Service Bus Queue -> Processor -> AI Analysis -> Processed Results
+                                                       ↑                ↑
+                                                       |                |
+                                                       └─── Rate Limiting ───┘
+```
+
+## Features
+
+- **Asynchronous Processing**: Non-blocking message handling with asyncio
+- **Intelligent Rate Limiting**: 
+  - Token-based rate limiting for text models (GPT-4, GPT-3.5)
+  - Request-based rate limiting for audio models (Whisper)
+- **Robust Error Handling**: Comprehensive error handling with retries and exponential backoff
+- **Message Queue Integration**: Seamless integration with Azure Service Bus
+- **AI-Powered Processing**: Leverages Azure OpenAI for intelligent data processing
+- **Audio Processing**: Complete audio transcription pipeline with Whisper
+- **Horizontal Scaling**: Supports multiple worker processes for high throughput
+- **Health Monitoring**: Endpoints for health checks and status reporting
+- **Secure Authentication**: Azure Identity integration for secure access to Azure services
+- **Blob Storage Integration**: Support for Azure Blob Storage operations
+
+## Audio Processing with Whisper
+
+### Whisper Service Features
+
+- **Smart Rate Limiting**: Configurable requests-per-minute limiting
+- **Concurrent Processing**: Process multiple audio chunks in parallel
+- **File Validation**: Automatic validation of audio format and size
+- **Retry Logic**: Built-in retry mechanisms for transient failures
+- **Multiple Formats**: Support for JSON, text, SRT, VTT output formats
+- **Language Support**: Full language detection and specification
+
+### Environment Variables for Whisper
+
+```bash
+# Whisper-specific configuration
+WHISPER_REQUESTS_PER_MINUTE=15  # Default: 50 requests per minute
+APP_OPENAI_API_VERSION=2024-02-01
+APP_OPENAI_API_BASE=https://your-openai-resource.openai.azure.com/
+APP_OPENAI_ENGINE=whisper-1  # Your Whisper deployment name
+```
+
+### Usage Example
+
+```python
+from common_new.azure_openai_service import AzureOpenAIServiceWhisper
+
+# Initialize Whisper service
+whisper_service = AzureOpenAIServiceWhisper(app_id="app_whisper")
+
+# Single file transcription
+result = await whisper_service.transcribe_audio(
+    audio_file_path="/path/to/audio.wav",
+    language="en",
+    response_format="verbose_json",
+    timestamp_granularities=["word", "segment"]
+)
+
+# Transcription with retry logic
+result = await whisper_service.transcribe_audio_with_retry(
+    audio_file_path="/path/to/audio.wav",
+    max_retries=3,
+    retry_delay=2.0
+)
+
+# Concurrent chunk processing
+chunk_paths = ["/path/to/chunk1.wav", "/path/to/chunk2.wav"]
+results = await whisper_service.transcribe_audio_chunks(chunk_paths)
+
+# Check rate limiting stats
+stats = whisper_service.get_rate_limit_stats()
+print(f"Current usage: {stats['utilization_percentage']:.1f}%")
+
+# Dynamically adjust rate limit
+await whisper_service.set_rate_limit(100)  # Increase to 100 RPM
+```
+
+### Rate Limiting Details
+
+The Whisper service uses a smart rate limiter that:
+
+1. **Tracks Requests**: Maintains a sliding window of requests over the last minute
+2. **Prevents Overuse**: Automatically waits when rate limit would be exceeded
+3. **Provides Statistics**: Real-time usage statistics and utilization percentages
+4. **Configurable**: Rate limits can be set via environment variables or dynamically
+5. **Thread-Safe**: Safe for concurrent use across multiple async tasks
+
+### Audio File Requirements
+
+- **Supported Formats**: MP3, MP4, MPEG, MPGA, M4A, WAV, WEBM
+- **Maximum Size**: 25MB per file
+- **Automatic Validation**: Files are validated before processing
+
+## Project Structure
+
+```
+├── app_counter/                 # Token counter service
+│   ├── models/                  # Data models
+│   │   ├── __init__.py
+│   │   └── schemas.py          # Pydantic models for requests/responses
+│   ├── services/               # Business logic
+│   │   ├── __init__.py
+│   │   └── counter_service.py  # Token counting logic
+│   ├── main.py                 # FastAPI application
+│   └── README.md               # Service-specific documentation
+├── app_whisper/                # Whisper audio processing service
+│   ├── models/                 # Data models
+│   ├── services/               # Business logic
+│   │   ├── businesslogic/      # Core processing logic
+│   │   └── data_processor.py   # Message queue data processing
+│   ├── main.py                 # FastAPI application
+│   └── README.md               # Service-specific documentation
+├── app_feedbackform/           # Feedback processing service
+├── common_new/                 # Shared library
+│   ├── azure_openai_service.py # Azure OpenAI integration with Whisper support
+│   ├── blob_storage.py         # Azure Blob Storage client (upload/download)
+│   ├── service_bus.py          # Azure Service Bus handler
+│   ├── token_client.py         # Token counter client
+│   ├── logger.py               # Centralized logging
+│   └── retry_helpers.py        # Retry logic utilities
+├── requirements.txt            # Python dependencies (includes audio processing)
+└── README.md                   # This file
+```
+
+## Rate Limiting Architecture
+
+### Text Models (GPT-4, GPT-3.5)
+- **Method**: Token-based rate limiting
+- **Tracking**: Input tokens + estimated output tokens
+- **Service**: Centralized Token Counter service
+- **Benefits**: Prevents costly overuse, accurate cost prediction
+
+### Audio Models (Whisper)
+- **Method**: Request-based rate limiting  
+- **Tracking**: Requests per minute with sliding window
+- **Service**: Local rate limiter per service instance
+- **Benefits**: Prevents API rate limit errors, configurable per deployment
+
+## Performance and Scaling
+
+For optimal performance and throughput:
+
+- Run with multiple worker processes (4 workers recommended for most deployments)
+- Scale horizontally by adding more instances for higher throughput
+- Configure rate limits based on your Azure OpenAI quotas
+- Use concurrent processing for audio chunks when possible
+- Monitor rate limit utilization to optimize throughput
+
+## Getting Started
+
+1. **Install Dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Set Environment Variables**:
+   ```bash
+   # Azure OpenAI Configuration
+   export APP_OPENAI_API_VERSION=2024-02-01
+   export APP_OPENAI_API_BASE=https://your-resource.openai.azure.com/
+   export APP_OPENAI_ENGINE=your-deployment-name
+   
+   # Whisper Rate Limiting
+   export WHISPER_REQUESTS_PER_MINUTE=50
+   
+   # Service Bus Configuration
+   export SERVICE_BUS_NAMESPACE=your-namespace.servicebus.windows.net
+   ```
+
+3. **Run a Service**:
+   ```bash
+   cd app_whisper
+   uvicorn main:app --host 0.0.0.0 --port 8000
+   ```
+
+## Dependencies
+
+The framework includes audio processing capabilities with these key dependencies:
+
+- **Core**: FastAPI, Pydantic, Azure SDK
+- **AI**: OpenAI Python client, Instructor
+- **Audio**: librosa, soundfile, ffmpeg-python, resemblyzer
+- **Infrastructure**: Azure Service Bus, Azure Blob Storage, Azure Identity
