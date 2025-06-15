@@ -15,9 +15,11 @@ instructor==1.8.3
 psutil 
 azure-search-documents==11.5.2
 # Audio processing dependencies for whisper app
-librosa==0.11.0
-soundfile==0.13.1
+pydub==0.25.1
 ffmpeg-python==0.2.0
-resemblyzer==0.1.4
-numpy==2.3.0
+speechbrain==1.0.2  # Alternative for speaker diarization
+torch>=2.7.0
+torchaudio>=2.7.0
+numpy>=1.24,<2.3
 scipy==1.15.3
+scikit-learn>=1.3.0  # For speaker clustering
