@@ -220,6 +220,6 @@ async def process_audio(filename: str) -> Tuple[bool, InternalWhisperResult]:
         if chunker:
             chunker.cleanup_temp_files()
             logger.info("Cleaned up chunk files")
-        if transcriber and chunker and chunker.chunks:
-            transcriber.cleanup_chunk_files(chunker.chunks)
+        if transcriber and 'audio_chunks' in locals() and audio_chunks:
+            transcriber.cleanup_chunk_files(audio_chunks)
             logger.info("Cleaned up transcription chunk files")

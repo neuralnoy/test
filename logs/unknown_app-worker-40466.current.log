@@ -1,0 +1,2 @@
+2025-06-16 00:18:07.614 | INFO | common | [MainProcess-40466] | [MainThread-8551128832] | logger.py:95 | Process 40466 (worker-40466) logging to /Users/arstep/Desktop/forms/logs/unknown_app-worker-40466.current.log
+2025-06-16 00:18:07.614 | WARNING | common | [MainProcess-40466] | [MainThread-8551128832] | logger.py:99 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
