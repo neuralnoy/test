@@ -256,4 +256,106 @@ class TokenClient:
                         return None
             except Exception as e:
                 logger.error(f"Error getting embedding counter status: {str(e)}")
+                return None
+
+    # Whisper rate limiting methods
+    async def lock_whisper_rate(self) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Lock a Whisper API rate slot.
+        
+        Returns:
+            Tuple of (allowed, request_id, error_message)
+        """
+        async with aiohttp.ClientSession() as session:
+            try:
+                url = f"{self.base_url}/whisper/lock"
+                data = {
+                    "app_id": self.app_id
+                }                
+                async with session.post(url, json=data) as response:
+                    response_data = await response.json()
+                    
+                    if response.status == 200 and response_data.get("allowed", False):
+                        return True, response_data.get("request_id"), None
+                    else:
+                        return False, None, response_data.get("message", "Whisper rate limit exceeded")
+            except Exception as e:
+                logger.error(f"Error locking Whisper rate slot: {str(e)}")
+                return False, None, f"Client error: {str(e)}"
+    
+    async def report_whisper_usage(self, request_id: str) -> bool:
+        """
+        Report that a Whisper API request was completed.
+        
+        Args:
+            request_id: The request ID returned when the rate slot was locked
+            
+        Returns:
+            Boolean indicating if the report was successful
+        """
+        async with aiohttp.ClientSession() as session:
+            try:
+                url = f"{self.base_url}/whisper/report"
+                data = {
+                    "app_id": self.app_id,
+                    "request_id": request_id
+                }
+                
+                async with session.post(url, json=data) as response:
+                    return response.status == 200
+            except Exception as e:
+                logger.error(f"Error reporting Whisper usage: {str(e)}")
+                return False
+    
+    async def release_whisper_rate(self, request_id: str) -> bool:
+        """
+        Release a locked Whisper rate slot that won't be used.
+        
+        Args:
+            request_id: The request ID returned when the rate slot was locked
+            
+        Returns:
+            Boolean indicating if the release was successful
+        """
+        async with aiohttp.ClientSession() as session:
+            try:
+                url = f"{self.base_url}/whisper/release"
+                data = {
+                    "app_id": self.app_id,
+                    "request_id": request_id
+                }
+                
+                async with session.post(url, json=data) as response:
+                    return response.status == 200
+            except Exception as e:
+                logger.error(f"Error releasing Whisper rate slot: {str(e)}")
+                return False
+
+    async def get_whisper_status(self) -> Optional[Dict[str, Any]]:
+        """
+        Get the current status of the Whisper rate counter.
+        
+        Returns:
+            Dict with available requests, used requests, locked requests, and seconds until reset
+        """
+        async with aiohttp.ClientSession() as session:
+            try:
+                url = f"{self.base_url}/whisper/status"               
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        status_data = await response.json()
+                        
+                        # Add client information to help with debugging
+                        status_data["client_app_id"] = self.app_id
+                        status_data["client_timestamp"] = time.time()
+                        
+                        # Log the status information for debugging
+                        logger.debug(f"WHISPER STATUS: Retrieved for {self.app_id}: req_avail={status_data.get('available_requests')}, reset_in={status_data.get('reset_time_seconds', 0)}s")
+                        
+                        return status_data
+                    else:
+                        logger.warning(f"Failed to get Whisper status: HTTP {response.status}")
+                        return None
+            except Exception as e:
+                logger.error(f"Error getting Whisper counter status: {str(e)}")
                 return None 

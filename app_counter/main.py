@@ -7,6 +7,7 @@ from app_counter.services.token_counter import TokenCounter
 from app_counter.services.rate_counter import RateCounter
 from app_counter.services.embedding_token_counter import EmbeddingTokenCounter
 from app_counter.services.embedding_rate_counter import EmbeddingRateCounter
+from app_counter.services.whisper_rate_counter import WhisperRateCounter
 from app_counter.models.schemas import (
     TokenRequest,
     TokenReport,
@@ -14,7 +15,12 @@ from app_counter.models.schemas import (
     ReleaseRequest,
     TokenResponse,
     StatusResponse,
-    EmbeddingStatusResponse
+    EmbeddingStatusResponse,
+    WhisperRateRequest,
+    WhisperRateReport,
+    WhisperRateRelease,
+    WhisperRateResponse,
+    WhisperRateStatusResponse
 )
 
 logger = get_logger("counter")
@@ -26,13 +32,16 @@ RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_RPM_QUOTA", "250"))
 # Get embedding token limit from environment variables or use default (typically higher than chat tokens)
 EMBEDDING_TOKEN_LIMIT_PER_MINUTE = int(os.getenv("APP_EMBEDDING_TPM_QUOTA", "1000000"))
 # Get embedding rate limit from environment variables or use default
-EMBEDDING_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_EMBEDDING_RPM_QUOTA", "500"))
+EMBEDDING_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_EMBEDDING_RPM_QUOTA", "6000"))
+# Get Whisper rate limit from environment variables or use default
+WHISPER_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_WHISPER_RPM_QUOTA", "15"))
 
 # Initialize the token counter and rate counter services
 token_counter = TokenCounter(tokens_per_minute=TOKEN_LIMIT_PER_MINUTE)
 rate_counter = RateCounter(requests_per_minute=RATE_LIMIT_PER_MINUTE)
 embedding_token_counter = EmbeddingTokenCounter(tokens_per_minute=EMBEDDING_TOKEN_LIMIT_PER_MINUTE)
 embedding_rate_counter = EmbeddingRateCounter(requests_per_minute=EMBEDDING_RATE_LIMIT_PER_MINUTE)
+whisper_rate_counter = WhisperRateCounter(requests_per_minute=WHISPER_RATE_LIMIT_PER_MINUTE)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -41,7 +50,7 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events.
     """
     # Startup logic
-    logger.info(f"Starting Token Counter app with limit of {TOKEN_LIMIT_PER_MINUTE} tokens per minute, {EMBEDDING_TOKEN_LIMIT_PER_MINUTE} embedding tokens per minute, {RATE_LIMIT_PER_MINUTE} requests per minute, and {EMBEDDING_RATE_LIMIT_PER_MINUTE} embedding requests per minute")
+    logger.info(f"Starting Token Counter app with limit of {TOKEN_LIMIT_PER_MINUTE} tokens per minute, {EMBEDDING_TOKEN_LIMIT_PER_MINUTE} embedding tokens per minute, {RATE_LIMIT_PER_MINUTE} requests per minute, {EMBEDDING_RATE_LIMIT_PER_MINUTE} embedding requests per minute, and {WHISPER_RATE_LIMIT_PER_MINUTE} Whisper requests per minute")
     
     # Initialize log monitoring service if configured
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
@@ -83,6 +92,7 @@ async def lifespan(app: FastAPI):
     app.state.rate_counter = rate_counter
     app.state.embedding_token_counter = embedding_token_counter
     app.state.embedding_rate_counter = embedding_rate_counter
+    app.state.whisper_rate_counter = whisper_rate_counter
     
     yield  # This is where the app runs
     
@@ -108,14 +118,15 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/")
 def read_root():
-    logger.info(f"CONFIG: token_limit={TOKEN_LIMIT_PER_MINUTE}, embedding_token_limit={EMBEDDING_TOKEN_LIMIT_PER_MINUTE}, rate_limit={RATE_LIMIT_PER_MINUTE}, embedding_rate_limit={EMBEDDING_RATE_LIMIT_PER_MINUTE}")
+    logger.info(f"CONFIG: token_limit={TOKEN_LIMIT_PER_MINUTE}, embedding_token_limit={EMBEDDING_TOKEN_LIMIT_PER_MINUTE}, rate_limit={RATE_LIMIT_PER_MINUTE}, embedding_rate_limit={EMBEDDING_RATE_LIMIT_PER_MINUTE}, whisper_rate_limit={WHISPER_RATE_LIMIT_PER_MINUTE}")
     return {
         "app": "OpenAI Token Counter",
         "status": "running",
         "token_limit_per_minute": TOKEN_LIMIT_PER_MINUTE,
         "embedding_token_limit_per_minute": EMBEDDING_TOKEN_LIMIT_PER_MINUTE,
         "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
-        "embedding_rate_limit_per_minute": EMBEDDING_RATE_LIMIT_PER_MINUTE
+        "embedding_rate_limit_per_minute": EMBEDDING_RATE_LIMIT_PER_MINUTE,
+        "whisper_rate_limit_per_minute": WHISPER_RATE_LIMIT_PER_MINUTE
     }
 
 @app.get("/health")
@@ -415,4 +426,89 @@ async def get_embedding_status():
         used_requests=embedding_rate_status.get("used_requests", 0),
         locked_requests=embedding_rate_status.get("locked_requests", 0),
         reset_time_seconds=effective_reset  # Use the minimum of the two reset times
+    )
+
+# Whisper endpoints
+@app.post("/whisper/lock", response_model=WhisperRateResponse)
+async def lock_whisper_rate(request: WhisperRateRequest):
+    """
+    Lock a Whisper API rate slot.
+    Returns whether the request is allowed and a request ID if allowed.
+    """
+    logger.info(f"API WHISPER LOCK: app={request.app_id}")
+    
+    # Check the Whisper rate limit
+    result = await whisper_rate_counter.lock_request(request.app_id)
+    
+    if not result.get("allowed", False):
+        logger.warning(f"API WHISPER LOCK DENIED: app={request.app_id}, reason={result.get('message')}")
+        return WhisperRateResponse(
+            allowed=False,
+            message=result.get('message', 'Whisper rate limit exceeded')
+        )
+    
+    logger.info(f"API WHISPER LOCK APPROVED: app={request.app_id}, request_id={result['request_id']}")
+    
+    return WhisperRateResponse(
+        allowed=True,
+        request_id=result["request_id"]
+    )
+
+@app.post("/whisper/report", status_code=200)
+async def report_whisper_usage(report: WhisperRateReport):
+    """
+    Report that a Whisper API request was completed.
+    """
+    logger.info(f"API WHISPER REPORT: app={report.app_id}, request_id={report.request_id}")
+    
+    success = await whisper_rate_counter.confirm_request(
+        report.app_id,
+        report.request_id
+    )
+    
+    if not success:
+        error_msg = f"Failed to report Whisper usage. Invalid request ID or app ID."
+        logger.error(f"API WHISPER REPORT ERROR: app={report.app_id}, request_id={report.request_id}, reason={error_msg}")
+        raise HTTPException(status_code=400, detail=error_msg)
+    
+    logger.info(f"API WHISPER REPORT SUCCESS: app={report.app_id}")
+    return {"success": True}
+
+@app.post("/whisper/release", status_code=200)
+async def release_whisper_rate(request: WhisperRateRelease):
+    """
+    Release a locked Whisper rate slot that won't be used.
+    """
+    logger.info(f"API WHISPER RELEASE: app={request.app_id}, request_id={request.request_id}")
+    
+    success = await whisper_rate_counter.release_request(request.app_id, request.request_id)
+    
+    if not success:
+        error_msg = f"Failed to release Whisper rate slot. Invalid request ID or app ID."
+        logger.error(f"API WHISPER RELEASE ERROR: app={request.app_id}, request_id={request.request_id}, reason={error_msg}")
+        raise HTTPException(status_code=400, detail=error_msg)
+    
+    logger.info(f"API WHISPER RELEASE SUCCESS: app={request.app_id}")
+    return {"success": True}
+
+@app.get("/whisper/status", response_model=WhisperRateStatusResponse)
+async def get_whisper_status():
+    """
+    Get the current status of the Whisper rate counter.
+    """
+    logger.info("API WHISPER STATUS: Fetching current status")
+    
+    whisper_status = await whisper_rate_counter.get_status()
+    
+    whisper_usage = whisper_status.get("used_requests", 0) + whisper_status.get("locked_requests", 0)
+    whisper_pct = (whisper_usage / WHISPER_RATE_LIMIT_PER_MINUTE) * 100 if WHISPER_RATE_LIMIT_PER_MINUTE > 0 else 0
+    
+    logger.info(f"API WHISPER STATUS RESULT: requests={whisper_usage}/{WHISPER_RATE_LIMIT_PER_MINUTE} ({whisper_pct:.1f}%), "
+                f"reset_in={whisper_status.get('reset_time_seconds', 0)}s")
+    
+    return WhisperRateStatusResponse(
+        available_requests=whisper_status.get("available_requests", 0),
+        used_requests=whisper_status.get("used_requests", 0),
+        locked_requests=whisper_status.get("locked_requests", 0),
+        reset_time_seconds=whisper_status.get("reset_time_seconds", 0)
     ) 

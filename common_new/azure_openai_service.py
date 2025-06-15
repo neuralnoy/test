@@ -7,7 +7,6 @@ import instructor
 import asyncio
 import time
 from typing import Dict, List, Any, Optional, TypeVar, Type
-from collections import deque
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from openai import AzureOpenAI
@@ -26,80 +25,6 @@ COUNTER_BASE_URL = os.getenv("COUNTER_APP_BASE_URL")
 # Type variable for Pydantic models
 T = TypeVar('T', bound=BaseModel)
 
-class WhisperRateLimiter:
-    """
-    Rate limiter specifically designed for Azure OpenAI Whisper API requests.
-    Tracks requests per minute with sliding window approach.
-    Thread-safe and async-compatible.
-    """
-    def __init__(self, requests_per_minute: int = 15):
-        """
-        Initialize Whisper API rate limiter.
-        
-        Args:
-            requests_per_minute: Maximum Whisper API requests allowed per minute (default: 50)
-        """
-        self.requests_per_minute = requests_per_minute
-        self.requests = deque()
-        self._lock = asyncio.Lock()
-        
-    async def can_make_request(self) -> bool:
-        """
-        Check if a Whisper API request can be made without exceeding rate limit.
-        
-        Returns:
-            bool: True if Whisper request can be made, False otherwise
-        """
-        async with self._lock:
-            now = time.time()
-            
-            # Remove requests older than 1 minute
-            while self.requests and now - self.requests[0] > 60:
-                self.requests.popleft()
-            
-            # Check if we can make another request
-            return len(self.requests) < self.requests_per_minute
-    
-    async def record_request(self) -> None:
-        """
-        Record that a Whisper API request was made.
-        """
-        async with self._lock:
-            self.requests.append(time.time())
-    
-    async def wait_for_availability(self) -> None:
-        """
-        Wait until a Whisper API request can be made without exceeding rate limit.
-        """
-        while not await self.can_make_request():
-            # Calculate how long to wait
-            async with self._lock:
-                if self.requests:
-                    oldest_request = self.requests[0]
-                    wait_time = 60 - (time.time() - oldest_request) + 1  # Add 1 second buffer
-                    wait_time = max(1, wait_time)  # Wait at least 1 second
-                else:
-                    wait_time = 1
-            
-            logger.info(f"Whisper API rate limit reached, waiting {wait_time:.1f} seconds")
-            await asyncio.sleep(wait_time)
-    
-    def get_current_usage(self) -> Dict[str, Any]:
-        """
-        Get current Whisper API rate limit usage statistics.
-        
-        Returns:
-            Dict with current Whisper API usage information
-        """
-        now = time.time()
-        # Count requests in the last minute
-        recent_requests = sum(1 for req_time in self.requests if now - req_time <= 60)
-        
-        return {
-            "requests_in_last_minute": recent_requests,
-            "requests_per_minute_limit": self.requests_per_minute,
-            "utilization_percentage": (recent_requests / self.requests_per_minute) * 100
-        }
 
 class AzureOpenAIService:
     """
@@ -421,20 +346,18 @@ class AzureOpenAIService:
 class AzureOpenAIServiceWhisper(AzureOpenAIService):
     """
     Service for interacting with Azure-hosted OpenAI Whisper models.
-    Provides functionality for audio transcription with proper rate limiting and error handling.
+    Provides functionality for audio transcription with centralized rate limiting and error handling.
     """
-    def __init__(self, model: Optional[str] = None, app_id: str = "default_app"):
-        super().__init__(model=model, app_id=app_id)
+    def __init__(self, model: Optional[str] = None, app_id: str = "default_app", token_counter_url: str = COUNTER_BASE_URL):
+        super().__init__(model=model, app_id=app_id, token_counter_url=token_counter_url)
         
         self.api_version = os.getenv("APP_OPENAI_API_VERSION")
         self.azure_endpoint = os.getenv("APP_OPENAI_API_BASE")
         self.default_model = model or os.getenv("APP_OPENAI_ENGINE")
         self.app_id = app_id
         
-        # Initialize rate limiter for Whisper API
-        whisper_rpm = int(os.getenv("WHISPER_REQUESTS_PER_MINUTE", "15"))
-        self.rate_limiter = WhisperRateLimiter(requests_per_minute=whisper_rpm)
-        logger.info(f"Initialized Whisper rate limiter with {whisper_rpm} requests per minute")
+        # Use centralized rate limiting via token client
+        logger.info(f"Initialized Whisper service with centralized rate limiting for app_id: {app_id}")
         
         # Initialize a separate client for audio operations
         self._audio_client = None
@@ -494,14 +417,15 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
         if not self.validate_audio_file(audio_file_path):
             raise ValueError(f"Invalid audio file: {audio_file_path}")
         
-        # Wait for rate limit availability
-        await self.rate_limiter.wait_for_availability()
+        # Lock Whisper rate slot
+        allowed, request_id, error_message = await self.token_client.lock_whisper_rate()
+        
+        if not allowed:
+            logger.warning(f"Whisper transcription request denied: {error_message}")
+            raise ValueError(error_message)
         
         try:
-            logger.info(f"Starting audio transcription for file: {audio_file_path}")
-            
-            # Record the request for rate limiting
-            await self.rate_limiter.record_request()
+            logger.info(f"Starting audio transcription for file: {audio_file_path}, request_id: {request_id}")
             
             # Initialize audio client
             client = self._initialize_audio_client()
@@ -539,10 +463,15 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
                 # For text, srt, vtt formats, response is a string
                 result = {"text": str(response)}
             
+            # Report successful Whisper usage
+            await self.token_client.report_whisper_usage(request_id)
+            
             logger.info(f"Successfully transcribed audio file: {audio_file_path}")
             return result
             
         except Exception as e:
+            # Release the rate slot if transcription fails
+            await self.token_client.release_whisper_rate(request_id)
             logger.error(f"Error in audio transcription: {str(e)}")
             raise
     

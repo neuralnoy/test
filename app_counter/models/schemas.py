@@ -51,4 +51,32 @@ class EmbeddingStatusResponse(BaseModel):
     available_requests: Optional[int] = None
     used_requests: Optional[int] = None
     locked_requests: Optional[int] = None
+    reset_time_seconds: int
+
+# Whisper-specific schemas
+class WhisperRateRequest(BaseModel):
+    """Request to lock a Whisper API rate slot."""
+    app_id: str
+
+class WhisperRateReport(BaseModel):
+    """Report that a Whisper API request was completed."""
+    app_id: str
+    request_id: str
+
+class WhisperRateRelease(BaseModel):
+    """Request to release a locked Whisper rate slot."""
+    app_id: str
+    request_id: str
+
+class WhisperRateResponse(BaseModel):
+    """Response for Whisper rate requests."""
+    allowed: bool
+    request_id: Optional[str] = None
+    message: Optional[str] = None
+
+class WhisperRateStatusResponse(BaseModel):
+    """Status of the Whisper rate counter."""
+    available_requests: int
+    used_requests: int
+    locked_requests: int
     reset_time_seconds: int 
