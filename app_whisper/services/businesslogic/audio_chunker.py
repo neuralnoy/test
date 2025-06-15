@@ -26,29 +26,26 @@ class AudioChunker:
     
     def __init__(self, 
                  max_file_size_mb: float = 24.0,
-                 target_chunk_duration: float = 30.0,
-                 max_chunk_duration: float = 60.0,
+                 target_chunk_size_mb: float = 23.0,  # Target chunk size (slightly under limit)
                  overlap_duration: float = 3.0,
-                 min_chunk_duration: float = 5.0):
+                 min_chunk_duration: float = 30.0):  # Minimum chunk duration (increased)
         """
         Initialize the audio chunker.
         
         Args:
             max_file_size_mb: Maximum file size in MB to process as whole file
-            target_chunk_duration: Target duration for each chunk (seconds)
-            max_chunk_duration: Maximum duration for each chunk (seconds)
+            target_chunk_size_mb: Target size for each chunk in MB (should be < max_file_size_mb)
             overlap_duration: Overlap duration between chunks (seconds)
             min_chunk_duration: Minimum duration for a chunk (seconds)
         """
         self.max_file_size_mb = max_file_size_mb
-        self.target_chunk_duration = target_chunk_duration
-        self.max_chunk_duration = max_chunk_duration
+        self.target_chunk_size_mb = target_chunk_size_mb
         self.overlap_duration = overlap_duration
         self.min_chunk_duration = min_chunk_duration
         self.temp_dir = tempfile.mkdtemp(prefix="whisper_chunks_")
         
         logger.info(f"Initialized AudioChunker: max_size={max_file_size_mb}MB, "
-                   f"target_duration={target_chunk_duration}s, overlap={overlap_duration}s")
+                   f"target_size={target_chunk_size_mb}MB, overlap={overlap_duration}s")
     
     def chunk_audio(self, audio_path: str, speaker_segments: List[SpeakerSegment]) -> List[AudioChunk]:
         """
@@ -113,14 +110,24 @@ class AudioChunker:
         return [chunk]
     
     def _create_overlapping_chunks(self, audio_path: str, audio: AudioSegment, speaker_segments: List[SpeakerSegment]) -> List[AudioChunk]:
-        """Create overlapping chunks based on speaker boundaries and duration."""
+        """Create size-based chunks with smart speaker boundaries."""
         chunks = []
         total_duration = len(audio) / 1000.0
+        file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
         
-        # Create chunk boundaries based on speaker segments and target duration
-        chunk_boundaries = self._calculate_chunk_boundaries(speaker_segments, total_duration)
+        # Calculate optimal number of chunks based on file size
+        num_chunks_needed = max(1, int(file_size_mb / self.target_chunk_size_mb))
+        target_chunk_duration = total_duration / num_chunks_needed
         
-        logger.info(f"Calculated {len(chunk_boundaries)} chunk boundaries: {chunk_boundaries}")
+        logger.info(f"File: {file_size_mb:.1f}MB, {total_duration:.1f}s")
+        logger.info(f"Target: {num_chunks_needed} chunks of ~{target_chunk_duration:.1f}s each (~{self.target_chunk_size_mb}MB)")
+        
+        # Create chunk boundaries based on size and speaker segments
+        chunk_boundaries = self._calculate_size_based_boundaries(
+            speaker_segments, total_duration, target_chunk_duration, num_chunks_needed
+        )
+        
+        logger.info(f"Calculated {len(chunk_boundaries)} chunk boundaries")
         
         for i, (start_time, end_time) in enumerate(chunk_boundaries):
             # Add overlap to previous and next chunks
@@ -146,6 +153,9 @@ class AudioChunker:
             chunk_path = os.path.join(self.temp_dir, f"{chunk_id}.wav")
             chunk_audio.export(chunk_path, format="wav")
             
+            # Get actual file size
+            actual_size_mb = os.path.getsize(chunk_path) / (1024 * 1024)
+            
             # Find speakers in this chunk
             chunk_speakers = self._get_speakers_in_range(speaker_segments, start_time, end_time)
             
@@ -163,81 +173,110 @@ class AudioChunker:
             )
             
             chunks.append(chunk)
-            logger.info(f"Created chunk {i+1}: {chunk.chunk_id} ({chunk.start_time:.2f}s-{chunk.end_time:.2f}s, "
-                       f"overlap: {overlap_start:.1f}s/{overlap_end:.1f}s, speakers: {chunk_speakers})")
+            logger.info(f"Created chunk {i+1}: {chunk.chunk_id} ({chunk.start_time:.1f}s-{chunk.end_time:.1f}s, "
+                       f"{actual_size_mb:.1f}MB, speakers: {len(chunk_speakers)})")
         
-        logger.info(f"Created {len(chunks)} overlapping chunks")
+        total_chunks_size = sum(os.path.getsize(chunk.file_path) for chunk in chunks) / (1024 * 1024)
+        logger.info(f"Created {len(chunks)} chunks, total size: {total_chunks_size:.1f}MB")
         return chunks
     
-    def _calculate_chunk_boundaries(self, speaker_segments: List[SpeakerSegment], total_duration: float) -> List[Tuple[float, float]]:
+    def _calculate_size_based_boundaries(self, speaker_segments: List[SpeakerSegment], total_duration: float, 
+                                        target_chunk_duration: float, num_chunks_needed: int) -> List[Tuple[float, float]]:
         """
-        Calculate optimal chunk boundaries based on speaker segments and target duration.
+        Calculate optimal chunk boundaries based on file size and speaker segments.
         
         Args:
             speaker_segments: List of speaker segments
             total_duration: Total audio duration
+            target_chunk_duration: Target duration for each chunk
+            num_chunks_needed: Number of chunks needed based on file size
             
         Returns:
             List[Tuple[float, float]]: List of (start_time, end_time) boundaries
         """
-        if not speaker_segments:
+        if not speaker_segments or num_chunks_needed == 1:
             # Fallback: create chunks based on target duration only
             boundaries = []
             current_time = 0.0
-            while current_time < total_duration:
-                end_time = min(current_time + self.target_chunk_duration, total_duration)
+            for i in range(num_chunks_needed):
+                end_time = min(current_time + target_chunk_duration, total_duration)
                 boundaries.append((current_time, end_time))
                 current_time = end_time
             return boundaries
         
         boundaries = []
-        current_start = 0.0
-        current_duration = 0.0
         
         # Sort segments by start time
         sorted_segments = sorted(speaker_segments, key=lambda x: x.start_time)
         
-        for i, segment in enumerate(sorted_segments):
-            segment_duration = segment.end_time - segment.start_time
+        # Calculate ideal chunk break points
+        ideal_break_points = []
+        for i in range(1, num_chunks_needed):
+            ideal_time = i * target_chunk_duration
+            ideal_break_points.append(ideal_time)
+        
+        logger.info(f"Ideal break points: {[f'{t:.1f}s' for t in ideal_break_points]}")
+        
+        # Find actual break points near ideal points, preferring speaker boundaries
+        actual_break_points = []
+        
+        for ideal_time in ideal_break_points:
+            best_break_time = ideal_time
+            min_penalty = float('inf')
             
-            # Check if adding this segment would exceed max duration
-            if current_duration + segment_duration > self.max_chunk_duration:
-                # Close current chunk
-                if current_duration >= self.min_chunk_duration:
-                    boundaries.append((current_start, segment.start_time))
-                    current_start = segment.start_time
-                    current_duration = segment_duration
-                else:
-                    # Current chunk too short, extend it
-                    current_duration += segment_duration
+            # Look for speaker boundaries within a reasonable window around ideal time
+            search_window = min(target_chunk_duration * 0.3, 60.0)  # 30% of target duration or 60s max
             
-            # Check if we've reached target duration and can find a good break point
-            elif current_duration + segment_duration >= self.target_chunk_duration:
-                # Look for speaker change as natural break point
-                if i < len(sorted_segments) - 1:
-                    next_segment = sorted_segments[i + 1]
-                    if segment.speaker_id != next_segment.speaker_id:
-                        # Good break point: speaker change
-                        boundaries.append((current_start, segment.end_time))
-                        current_start = segment.end_time
-                        current_duration = 0.0
-                        continue
-                
-                current_duration += segment_duration
-            else:
-                current_duration += segment_duration
+            for segment in sorted_segments:
+                # Check segment end as potential break point
+                segment_end = segment.end_time
+                if abs(segment_end - ideal_time) <= search_window:
+                    # Calculate penalty: distance from ideal + speaker continuity penalty
+                    time_penalty = abs(segment_end - ideal_time)
+                    
+                    # Check if this creates a speaker boundary (good) or cuts mid-speaker (bad)
+                    next_segments = [s for s in sorted_segments if s.start_time >= segment_end]
+                    if next_segments and next_segments[0].speaker_id != segment.speaker_id:
+                        speaker_penalty = 0  # Good: natural speaker boundary
+                    else:
+                        speaker_penalty = 10  # Bad: cutting mid-speaker
+                    
+                    total_penalty = time_penalty + speaker_penalty
+                    
+                    if total_penalty < min_penalty:
+                        min_penalty = total_penalty
+                        best_break_time = segment_end
+            
+            actual_break_points.append(best_break_time)
+        
+        logger.info(f"Actual break points: {[f'{t:.1f}s' for t in actual_break_points]}")
+        
+        # Create boundaries
+        current_start = 0.0
+        for break_point in actual_break_points:
+            boundaries.append((current_start, break_point))
+            current_start = break_point
         
         # Add final chunk
-        if current_duration >= self.min_chunk_duration:
-            boundaries.append((current_start, total_duration))
-        elif boundaries:
-            # Extend last chunk to include remaining audio
-            boundaries[-1] = (boundaries[-1][0], total_duration)
-        else:
-            # Single chunk for entire audio
-            boundaries.append((0.0, total_duration))
+        boundaries.append((current_start, total_duration))
         
-        return boundaries
+        # Validate and adjust boundaries
+        validated_boundaries = []
+        for start, end in boundaries:
+            duration = end - start
+            if duration >= self.min_chunk_duration:
+                validated_boundaries.append((start, end))
+            else:
+                logger.warning(f"Chunk too short ({duration:.1f}s), merging with previous")
+                if validated_boundaries:
+                    # Merge with previous chunk
+                    prev_start, _ = validated_boundaries[-1]
+                    validated_boundaries[-1] = (prev_start, end)
+                else:
+                    # First chunk, keep it anyway
+                    validated_boundaries.append((start, end))
+        
+        return validated_boundaries
     
     def _get_speakers_in_range(self, speaker_segments: List[SpeakerSegment], start_time: float, end_time: float) -> List[str]:
         """Get list of speakers present in the given time range."""
