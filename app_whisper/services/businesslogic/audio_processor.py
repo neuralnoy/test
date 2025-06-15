@@ -50,8 +50,9 @@ async def process_audio(filename: str) -> Tuple[bool, InternalWhisperResult]:
         if not local_audio_path:
             logger.error(f"Failed to download audio file: {filename}")
             return False, InternalWhisperResult(
-                transcription="Error: Failed to download audio file",
-                diarization=False
+                text="Error: Failed to download audio file",
+                confidence=0.0,
+                processing_metadata={"error": "download_failed"}
             )
         
         # Get original audio file information
@@ -67,8 +68,9 @@ async def process_audio(filename: str) -> Tuple[bool, InternalWhisperResult]:
         if not preprocessed_audio_path:
             logger.error(f"Failed to preprocess audio file: {filename}")
             return False, InternalWhisperResult(
-                transcription="Error: Failed to preprocess audio file",
-                diarization=False
+                text="Error: Failed to preprocess audio file",
+                confidence=0.0,
+                processing_metadata={"error": "preprocessing_failed"}
             )
         
         # Get preprocessed audio information
@@ -112,8 +114,9 @@ async def process_audio(filename: str) -> Tuple[bool, InternalWhisperResult]:
         if not audio_chunks:
             logger.error(f"Failed to create audio chunks for: {filename}")
             return False, InternalWhisperResult(
-                transcription="Error: Failed to create audio chunks",
-                diarization=False
+                text="Error: Failed to create audio chunks",
+                confidence=0.0,
+                processing_metadata={"error": "chunking_failed"}
             )
         
         logger.info(f"Step 4 completed: Created {len(audio_chunks)} audio chunks")
@@ -205,8 +208,9 @@ async def process_audio(filename: str) -> Tuple[bool, InternalWhisperResult]:
         processing_time = time.time() - start_time
         logger.error(f"Error in audio processing pipeline for {filename}: {str(e)} (Processing time: {processing_time:.2f}s)")
         return False, InternalWhisperResult(
-            transcription=f"Error: {str(e)}",
-            diarization=False
+            text=f"Error: {str(e)}",
+            confidence=0.0,
+            processing_metadata={"error": "pipeline_exception", "processing_time_seconds": processing_time}
         )
     
     finally:

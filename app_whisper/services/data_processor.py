@@ -29,11 +29,14 @@ async def process_data(message_body: str) -> OutputWhisper:
         
         if success:            
             # This is what will be sent to the queue
+            # Determine if diarization was performed based on processing metadata
+            has_diarization = result.processing_metadata.get("diarization_summary", {}).get("num_speakers", 0) > 1
+            
             output_data = OutputWhisper(
                 id=whisper_data.id,
                 filename=whisper_data.filename,
-                transcription=result.transcription,
-                diarization=result.diarization,
+                transcription=result.text,
+                diarization=has_diarization,
                 message="SUCCESS"
             )
             
@@ -41,12 +44,12 @@ async def process_data(message_body: str) -> OutputWhisper:
             return output_data.model_dump()
         else:
             # Processing failed after retries, return error response
-            
+            # For failed processing, diarization is False and use result.text
             output_data = OutputWhisper(
                 id=whisper_data.id,
                 filename=whisper_data.filename,
-                transcription=result.transcription,
-                diarization=result.diarization,
+                transcription=result.text,
+                diarization=False,
                 message="failed"
             )
             
