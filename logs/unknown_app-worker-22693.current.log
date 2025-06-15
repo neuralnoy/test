@@ -1,4 +1,0 @@
-2025-06-15 21:53:40.782 | INFO | common | [MainProcess-22693] | [MainThread-8551128832] | logger.py:95 | Process 22693 (worker-22693) logging to /Users/arstep/Desktop/forms/logs/unknown_app-worker-22693.current.log
-2025-06-15 21:53:40.782 | WARNING | common | [MainProcess-22693] | [MainThread-8551128832] | logger.py:99 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
-2025-06-15 21:54:00.007 | INFO | speechbrain.utils.quirks | [MainProcess-22693] | [MainThread-8551128832] | quirks.py:115 | Applied quirks (see `speechbrain.utils.quirks`): [disable_jit_profiling, allow_tf32]
-2025-06-15 21:54:00.007 | INFO | speechbrain.utils.quirks | [MainProcess-22693] | [MainThread-8551128832] | quirks.py:120 | Excluded quirks specified by the `SB_DISABLE_QUIRKS` environment (comma-separated list): []

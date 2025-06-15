@@ -1,13 +1,15 @@
 """
 Speaker diarization for Step 3 of the whisper pipeline.
-Uses SpeechBrain for high-quality speaker segmentation and identification.
+Uses local audio features for speaker segmentation and identification (no external models required).
 """
 import os
-import tempfile
+import numpy as np
 from typing import List, Dict, Optional, Tuple
 import torch
 import torchaudio
-from speechbrain.inference.speaker import SpeakerRecognition
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.preprocessing import StandardScaler
+from scipy.signal import spectrogram
 from common_new.logger import get_logger
 
 logger = get_logger("whisper")
@@ -25,46 +27,37 @@ class SpeakerSegment:
 
 class SpeakerDiarizer:
     """
-    Handles speaker diarization using SpeechBrain.
+    Handles speaker diarization using local audio features (no external models required).
     
-    This class implements Step 3 of the whisper pipeline:
-    - Speaker embedding extraction
-    - Speaker clustering and identification
-    - Timestamped speaker segments generation
+    This class implements Step 3 of the whisper pipeline using:
+    - MFCC features for speaker characterization
+    - Spectral features (pitch, formants, spectral centroid)
+    - Agglomerative clustering for speaker grouping
     """
     
     def __init__(self, 
-                 model_source: str = "speechbrain/spkrec-ecapa-voxceleb",
+                 model_source: str = "local",  # Kept for compatibility but ignored
                  min_segment_duration: float = 1.0,
-                 similarity_threshold: float = 0.75):
+                 similarity_threshold: float = 0.75,
+                 max_speakers: int = 6):
         """
         Initialize the speaker diarizer.
         
         Args:
-            model_source: SpeechBrain model for speaker recognition
+            model_source: Ignored (kept for compatibility)
             min_segment_duration: Minimum duration for a speaker segment (seconds)
             similarity_threshold: Threshold for speaker similarity clustering
+            max_speakers: Maximum number of speakers to detect
         """
-        self.model_source = model_source
         self.min_segment_duration = min_segment_duration
         self.similarity_threshold = similarity_threshold
-        self.speaker_model = None
+        self.max_speakers = max_speakers
         
-        logger.info(f"Initializing SpeakerDiarizer with model: {model_source}")
+        logger.info(f"Initializing SpeakerDiarizer with local features (no external models required)")
     
     def _load_model(self):
-        """Load the SpeechBrain speaker recognition model."""
-        if self.speaker_model is None:
-            try:
-                logger.info("Loading SpeechBrain speaker recognition model...")
-                self.speaker_model = SpeakerRecognition.from_hparams(
-                    source=self.model_source,
-                    savedir=tempfile.mkdtemp(prefix="speechbrain_")
-                )
-                logger.info("SpeechBrain model loaded successfully")
-            except Exception as e:
-                logger.error(f"Failed to load SpeechBrain model: {str(e)}")
-                raise
+        """No model loading required for local feature extraction."""
+        logger.info("Using local feature extraction (no model loading required)")
     
     def diarize_audio(self, audio_path: str) -> List[SpeakerSegment]:
         """
@@ -77,10 +70,7 @@ class SpeakerDiarizer:
             List[SpeakerSegment]: List of speaker segments with timing
         """
         try:
-            logger.info(f"Starting speaker diarization for: {audio_path}")
-            
-            # Load the model if not already loaded
-            self._load_model()
+            logger.info(f"Starting local speaker diarization for: {audio_path}")
             
             # Load audio with torchaudio
             waveform, sample_rate = torchaudio.load(audio_path)
@@ -95,25 +85,25 @@ class SpeakerDiarizer:
             duration = waveform.shape[1] / sample_rate
             logger.info(f"Audio duration: {duration:.2f} seconds")
             
-            # Perform sliding window speaker embedding extraction
+            # Extract speaker features using sliding window
             segments = self._extract_speaker_segments(waveform, sample_rate, duration)
             
-            # Cluster speakers based on embeddings
+            # Cluster speakers based on features
             clustered_segments = self._cluster_speakers(segments)
             
-            logger.info(f"Diarization completed: {len(clustered_segments)} segments, "
+            logger.info(f"Local diarization completed: {len(clustered_segments)} segments, "
                        f"{len(set(seg.speaker_id for seg in clustered_segments))} speakers detected")
             
             return clustered_segments
             
         except Exception as e:
-            logger.error(f"Error in speaker diarization for {audio_path}: {str(e)}")
+            logger.error(f"Error in local speaker diarization for {audio_path}: {str(e)}")
             # Return a single segment covering the whole audio as fallback
-            return [SpeakerSegment("Speaker_1", 0.0, self._get_audio_duration(audio_path), 0.5)]
+            return [SpeakerSegment("1", 0.0, self._get_audio_duration(audio_path), 0.5)]
     
     def _extract_speaker_segments(self, waveform: torch.Tensor, sample_rate: int, duration: float) -> List[Dict]:
         """
-        Extract speaker embeddings from audio using sliding window approach.
+        Extract speaker features from audio using sliding window approach.
         
         Args:
             waveform: Audio waveform tensor
@@ -121,7 +111,7 @@ class SpeakerDiarizer:
             duration: Total duration of audio
             
         Returns:
-            List[Dict]: List of segments with embeddings and timing
+            List[Dict]: List of segments with features and timing
         """
         segments = []
         window_size = 3.0  # 3-second windows
@@ -130,7 +120,7 @@ class SpeakerDiarizer:
         window_samples = int(window_size * sample_rate)
         hop_samples = int(hop_size * sample_rate)
         
-        logger.info(f"Extracting embeddings with {window_size}s windows, {hop_size}s hop")
+        logger.info(f"Extracting local features with {window_size}s windows, {hop_size}s hop")
         
         for start_sample in range(0, waveform.shape[1] - window_samples + 1, hop_samples):
             end_sample = start_sample + window_samples
@@ -138,32 +128,94 @@ class SpeakerDiarizer:
             end_time = end_sample / sample_rate
             
             # Extract window
-            window = waveform[:, start_sample:end_sample]
+            window = waveform[0, start_sample:end_sample].numpy()
             
             try:
-                # Get speaker embedding
-                embedding = self.speaker_model.encode_batch(window.unsqueeze(0))
+                # Extract multiple speaker features
+                features = self._extract_window_features(window, sample_rate)
                 
                 segments.append({
                     'start_time': start_time,
                     'end_time': end_time,
-                    'embedding': embedding.squeeze().cpu().numpy(),
+                    'features': features,
                     'duration': window_size
                 })
                 
             except Exception as e:
-                logger.warning(f"Failed to extract embedding for segment {start_time:.2f}-{end_time:.2f}s: {str(e)}")
+                logger.warning(f"Failed to extract features for segment {start_time:.2f}-{end_time:.2f}s: {str(e)}")
                 continue
         
-        logger.info(f"Extracted {len(segments)} speaker embeddings")
+        logger.info(f"Extracted features from {len(segments)} segments")
         return segments
+    
+    def _extract_window_features(self, window: np.ndarray, sample_rate: int) -> np.ndarray:
+        """
+        Extract comprehensive speaker features from an audio window.
+        
+        Args:
+            window: Audio samples for the window
+            sample_rate: Sample rate of the audio
+            
+        Returns:
+            np.ndarray: Feature vector for the window
+        """
+        features = []
+        
+        # 1. MFCC features (most important for speaker identification)
+        from python_speech_features import mfcc
+        mfcc_features = mfcc(window, sample_rate, numcep=13, nfilt=26, nfft=512)
+        features.extend(np.mean(mfcc_features, axis=0))  # Mean across time
+        features.extend(np.std(mfcc_features, axis=0))   # Std across time
+        
+        # 2. Spectral features
+        f, t, Sxx = spectrogram(window, sample_rate, nperseg=512, noverlap=256)
+        
+        # Spectral centroid (brightness)
+        spectral_centroid = np.sum(f[:, np.newaxis] * Sxx, axis=0) / np.sum(Sxx, axis=0)
+        features.extend([np.mean(spectral_centroid), np.std(spectral_centroid)])
+        
+        # Spectral rolloff
+        cumsum_power = np.cumsum(Sxx, axis=0)
+        total_power = cumsum_power[-1, :]
+        rolloff_85 = np.argmax(cumsum_power >= 0.85 * total_power, axis=0)
+        features.extend([np.mean(rolloff_85), np.std(rolloff_85)])
+        
+        # 3. Energy features
+        energy = np.sum(window ** 2)
+        features.append(energy)
+        
+        # Zero crossing rate
+        zero_crossings = np.sum(np.diff(np.sign(window)) != 0)
+        features.append(zero_crossings / len(window))
+        
+        # 4. Pitch-related features (fundamental frequency estimation)
+        # Simple autocorrelation-based pitch estimation
+        autocorr = np.correlate(window, window, mode='full')
+        autocorr = autocorr[len(autocorr)//2:]
+        
+        # Find pitch period (avoid very low frequencies)
+        min_period = int(sample_rate / 500)  # 500 Hz max
+        max_period = int(sample_rate / 50)   # 50 Hz min
+        
+        if len(autocorr) > max_period:
+            pitch_autocorr = autocorr[min_period:max_period]
+            if len(pitch_autocorr) > 0:
+                pitch_period = np.argmax(pitch_autocorr) + min_period
+                pitch_freq = sample_rate / pitch_period if pitch_period > 0 else 0
+                features.append(pitch_freq)
+            else:
+                features.append(0)
+        else:
+            features.append(0)
+        
+        return np.array(features)
     
     def _cluster_speakers(self, segments: List[Dict]) -> List[SpeakerSegment]:
         """
-        Cluster speaker segments based on embedding similarity.
+        Cluster speaker segments based on feature similarity.
         
         Args:
-            segments: List of segments with embeddings
+            segments: List of segments with features
             
         Returns:
             List[SpeakerSegment]: Clustered speaker segments
@@ -171,42 +223,47 @@ class SpeakerDiarizer:
         if not segments:
             return []
         
-        import numpy as np
-        from sklearn.cluster import AgglomerativeClustering
-        from sklearn.metrics.pairwise import cosine_similarity
+        logger.info("Clustering speaker features...")
         
-        logger.info("Clustering speaker embeddings...")
+        # Extract features
+        features = np.array([seg['features'] for seg in segments])
         
-        # Extract embeddings
-        embeddings = np.array([seg['embedding'] for seg in segments])
+        # Normalize features
+        scaler = StandardScaler()
+        features_normalized = scaler.fit_transform(features)
         
-        # Compute cosine similarity matrix
-        similarity_matrix = cosine_similarity(embeddings)
+        # Estimate number of speakers (between 1 and max_speakers)
+        n_segments = len(segments)
+        if n_segments <= 2:
+            n_clusters = 1
+        else:
+            # Use a heuristic: roughly 1 speaker per 10 segments, but cap at max_speakers
+            n_clusters = min(max(1, n_segments // 10), self.max_speakers)
         
-        # Convert similarity to distance (1 - similarity)
-        distance_matrix = 1 - similarity_matrix
+        logger.info(f"Clustering {n_segments} segments into {n_clusters} speakers")
         
         # Perform agglomerative clustering
-        # Estimate number of speakers (between 1 and 6)
-        n_clusters = min(max(1, len(segments) // 10), 6)
-        
         clustering = AgglomerativeClustering(
             n_clusters=n_clusters,
-            metric='precomputed',
-            linkage='average'
+            linkage='ward'  # Ward linkage works well with normalized features
         )
         
-        cluster_labels = clustering.fit_predict(distance_matrix)
+        cluster_labels = clustering.fit_predict(features_normalized)
         
         # Create speaker segments
         speaker_segments = []
         for i, segment in enumerate(segments):
-            speaker_id = f"Speaker_{cluster_labels[i] + 1}"
+            speaker_id = str(cluster_labels[i] + 1)  # Simple numeric speaker IDs
             
-            # Calculate confidence based on intra-cluster similarity
+            # Calculate confidence based on cluster cohesion
+            # Use distance from cluster center as confidence measure
             cluster_mask = cluster_labels == cluster_labels[i]
-            cluster_similarities = similarity_matrix[i][cluster_mask]
-            confidence = float(np.mean(cluster_similarities))
+            cluster_features = features_normalized[cluster_mask]
+            cluster_center = np.mean(cluster_features, axis=0)
+            
+            # Distance from center (lower distance = higher confidence)
+            distance = np.linalg.norm(features_normalized[i] - cluster_center)
+            confidence = max(0.1, 1.0 - min(distance / 2.0, 0.9))  # Scale to 0.1-1.0
             
             speaker_segments.append(SpeakerSegment(
                 speaker_id=speaker_id,

@@ -76,12 +76,13 @@ async def process_audio(filename: str) -> Tuple[bool, InternalWhisperResult]:
         logger.info(f"Preprocessed audio info: {preprocessed_audio_info}")
         logger.info(f"Step 2 completed: Preprocessed audio saved to {preprocessed_audio_path}")
         
-        # Step 3: Speaker diarization
-        logger.info("=== STEP 3: SPEAKER DIARIZATION ===")
+        # Step 3: Speaker diarization (local features - no external models)
+        logger.info("=== STEP 3: SPEAKER DIARIZATION (LOCAL) ===")
         diarizer = SpeakerDiarizer(
-            model_source="speechbrain/spkrec-ecapa-voxceleb",
+            model_source="local",  # Using local features
             min_segment_duration=1.0,
-            similarity_threshold=0.75
+            similarity_threshold=0.75,
+            max_speakers=6
         )
         
         speaker_segments = diarizer.diarize_audio(preprocessed_audio_path)
