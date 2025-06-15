@@ -85,13 +85,11 @@ class AudioChunker:
     def _create_whole_file_chunk(self, audio_path: str, audio: AudioSegment, speaker_segments: List[SpeakerSegment]) -> List[AudioChunk]:
         """Create a single chunk for the whole file."""
         chunk_id = f"chunk_whole_{uuid.uuid4().hex[:8]}"
-        
-        # Copy file to chunks directory
         chunk_path = os.path.join(self.temp_dir, f"{chunk_id}.wav")
         audio.export(chunk_path, format="wav")
         
         # Get all speakers in the file
-        speakers = list(set(seg.speaker_id for seg in speaker_segments))
+        speakers = speaker_segments if speaker_segments else []
         
         chunk = AudioChunk(
             chunk_id=chunk_id,
@@ -100,8 +98,7 @@ class AudioChunker:
             end_time=len(audio) / 1000.0,
             duration=len(audio) / 1000.0,
             file_size=os.path.getsize(chunk_path),
-            overlap_start=0.0,
-            overlap_end=0.0,
+            overlap_duration=0.0,
             speaker_segments=speakers,
             is_whole_file=True
         )
@@ -166,8 +163,7 @@ class AudioChunker:
                 end_time=end_time,
                 duration=end_time - start_time,
                 file_size=os.path.getsize(chunk_path),
-                overlap_start=overlap_start,
-                overlap_end=overlap_end,
+                overlap_duration=overlap_end,
                 speaker_segments=chunk_speakers,
                 is_whole_file=False
             )
@@ -278,14 +274,21 @@ class AudioChunker:
         
         return validated_boundaries
     
-    def _get_speakers_in_range(self, speaker_segments: List[SpeakerSegment], start_time: float, end_time: float) -> List[str]:
-        """Get list of speakers present in the given time range."""
-        speakers = set()
+    def _get_speakers_in_range(self, speaker_segments: List[SpeakerSegment], start_time: float, end_time: float) -> List[SpeakerSegment]:
+        """Get list of speaker segments that overlap with the given time range."""
+        overlapping_segments = []
         for segment in speaker_segments:
             # Check if segment overlaps with chunk
             if segment.start_time < end_time and segment.end_time > start_time:
-                speakers.add(segment.speaker_id)
-        return sorted(list(speakers))
+                # Adjust segment times to be relative to chunk boundaries
+                adjusted_segment = SpeakerSegment(
+                    speaker_id=segment.speaker_id,
+                    start_time=max(segment.start_time, start_time) - start_time,  # Relative to chunk start
+                    end_time=min(segment.end_time, end_time) - start_time,      # Relative to chunk start
+                    confidence=segment.confidence
+                )
+                overlapping_segments.append(adjusted_segment)
+        return overlapping_segments
     
     def _create_fallback_chunk(self, audio_path: str) -> List[AudioChunk]:
         """Create a fallback single chunk in case of errors."""
@@ -295,6 +298,14 @@ class AudioChunker:
             chunk_path = os.path.join(self.temp_dir, f"{chunk_id}.wav")
             audio.export(chunk_path, format="wav")
             
+            # Create a default speaker segment for the entire chunk
+            default_speaker = SpeakerSegment(
+                speaker_id="Speaker_1",
+                start_time=0.0,
+                end_time=len(audio) / 1000.0,
+                confidence=0.5
+            )
+            
             return [AudioChunk(
                 chunk_id=chunk_id,
                 file_path=chunk_path,
@@ -302,9 +313,8 @@ class AudioChunker:
                 end_time=len(audio) / 1000.0,
                 duration=len(audio) / 1000.0,
                 file_size=os.path.getsize(chunk_path),
-                overlap_start=0.0,
-                overlap_end=0.0,
-                speaker_segments=["Speaker_1"],
+                overlap_duration=0.0,
+                speaker_segments=[default_speaker],
                 is_whole_file=True
             )]
         except Exception as e:
@@ -350,7 +360,7 @@ class OverlapDeduplicator:
             return ""
         
         if len(chunk_transcriptions) == 1:
-            return chunk_transcriptions[0].transcription
+            return chunk_transcriptions[0].text
         
         logger.info(f"Deduplicating {len(chunk_transcriptions)} chunk transcriptions")
         
@@ -360,7 +370,7 @@ class OverlapDeduplicator:
         final_text = ""
         
         for i, chunk in enumerate(sorted_chunks):
-            chunk_text = chunk.transcription.strip()
+            chunk_text = chunk.text.strip()
             
             if i == 0:
                 # First chunk: use full text
@@ -371,7 +381,7 @@ class OverlapDeduplicator:
                 deduplicated_text = self._remove_overlap_start(
                     chunk_text, 
                     final_text, 
-                    chunk.overlap_start
+                    chunk.overlap_duration
                 )
                 
                 final_text += " " + deduplicated_text

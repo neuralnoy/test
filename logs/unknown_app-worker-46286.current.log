@@ -1,0 +1,4 @@
+2025-06-16 01:04:11.103 | INFO | whisper | [MainProcess-46286] | [MainThread-8551128832] | logger.py:95 | Process 46286 (worker-46286) logging to /Users/arstep/Desktop/forms/logs/unknown_app-worker-46286.current.log
+2025-06-16 01:04:11.103 | WARNING | whisper | [MainProcess-46286] | [MainThread-8551128832] | logger.py:99 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
+2025-06-16 01:04:11.104 | INFO | whisper | [MainProcess-46286] | [MainThread-8551128832] | audio_chunker.py:47 | Initialized AudioChunker: max_size=24.0MB, target_size=23.0MB, overlap=3.0s
+2025-06-16 01:04:11.105 | INFO | whisper | [MainProcess-46286] | [MainThread-8551128832] | audio_chunker.py:330 | Cleaned up chunk directory: /var/folders/72/45lz0wwd4kxdwq5yc1m8r11h0000gn/T/whisper_chunks_59uho5z5

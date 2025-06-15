@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Dict, Any
 
 class InputWhisper(BaseModel):
@@ -16,6 +16,9 @@ class SpeakerSegment(BaseModel):
 
 class AudioChunk(BaseModel):
     """Represents an audio chunk with overlap information for transcription."""
+    # Uncomment the line below to disable validation if needed
+    # model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=False)
+    
     chunk_id: str
     file_path: str
     start_time: float
