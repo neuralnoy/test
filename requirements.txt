@@ -17,9 +17,6 @@ azure-search-documents==11.5.2
 # Audio processing dependencies for whisper app
 pydub==0.25.1
 ffmpeg-python==0.2.0
-torch>=2.7.0
-torchaudio>=2.7.0
 numpy>=1.24,<2.3
-scipy==1.15.3
 scikit-learn>=1.3.0  # For speaker clustering
-python_speech_features>=0.6  # For MFCC feature extraction
+resemblyzer>=0.1.1  # For speaker diarization

@@ -1,0 +1,4 @@
+2025-06-16 09:58:42.619 | INFO | whisper | [MainProcess-75803] | [MainThread-8551128832] | logger.py:95 | Process 75803 (worker-75803) logging to /Users/arstep/Desktop/forms/logs/unknown_app-worker-75803.current.log
+2025-06-16 09:58:42.619 | WARNING | whisper | [MainProcess-75803] | [MainThread-8551128832] | logger.py:99 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
+2025-06-16 09:58:42.619 | INFO | whisper | [MainProcess-75803] | [MainThread-8551128832] | speaker_diarizer.py:53 | Initializing SpeakerDiarizer with Resemblyzer
+2025-06-16 09:58:42.619 | INFO | whisper | [MainProcess-75803] | [MainThread-8551128832] | speaker_diarizer.py:54 | Config: min_duration=1.0s, similarity=0.75, max_speakers=6, window=1.5s, hop=0.75s
