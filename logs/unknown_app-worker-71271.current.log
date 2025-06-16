@@ -1,0 +1,21 @@
+2025-06-16 09:23:52.013 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | logger.py:95 | Process 71271 (worker-71271) logging to /Users/arstep/Desktop/forms/logs/unknown_app-worker-71271.current.log
+2025-06-16 09:23:52.013 | WARNING | whisper | [MainProcess-71271] | [MainThread-8551128832] | logger.py:99 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
+2025-06-16 09:23:52.014 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:34 | Initialized AudioChunker: max_size=24.0MB
+2025-06-16 09:23:52.044 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:48 | Starting audio chunking for: /var/folders/72/45lz0wwd4kxdwq5yc1m8r11h0000gn/T/tmpv3s5z2q3.wav
+2025-06-16 09:23:52.045 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:55 | Audio info: duration=5.00s, size=0.42MB
+2025-06-16 09:23:52.045 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:59 | File size (0.42MB) <= 24.0MB, processing as whole file
+2025-06-16 09:23:52.045 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:89 | Created whole file chunk: chunk_whole_15c9b999 (5.00s)
+2025-06-16 09:23:52.405 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:34 | Initialized AudioChunker: max_size=1.0MB
+2025-06-16 09:23:52.406 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:48 | Starting audio chunking for: /var/folders/72/45lz0wwd4kxdwq5yc1m8r11h0000gn/T/tmp4b_ir3fe.wav
+2025-06-16 09:23:52.407 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:55 | Audio info: duration=60.00s, size=5.05MB
+2025-06-16 09:23:52.407 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:63 | File size (5.05MB) > 1.0MB, creating chunks
+2025-06-16 09:23:52.407 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:105 | Creating 6 chunks of ~10.0s each
+2025-06-16 09:23:52.410 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:140 | Created chunk 1: chunk_001_d6916510 (0.0s-10.0s, 0.8MB, speakers: 1)
+2025-06-16 09:23:52.411 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:140 | Created chunk 2: chunk_002_da35eb1e (10.0s-20.0s, 0.8MB, speakers: 1)
+2025-06-16 09:23:52.411 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:140 | Created chunk 3: chunk_003_3f756122 (20.0s-30.0s, 0.8MB, speakers: 1)
+2025-06-16 09:23:52.412 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:140 | Created chunk 4: chunk_004_0981475e (30.0s-40.0s, 0.8MB, speakers: 1)
+2025-06-16 09:23:52.412 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:140 | Created chunk 5: chunk_005_876f5ae4 (40.0s-50.0s, 0.8MB, speakers: 1)
+2025-06-16 09:23:52.412 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:140 | Created chunk 6: chunk_006_5ccf96d2 (50.0s-60.0s, 0.8MB, speakers: 1)
+2025-06-16 09:23:52.412 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:144 | Created 6 chunks, total size: 5.0MB
+2025-06-16 09:23:52.413 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:200 | Cleaned up chunk directory: /var/folders/72/45lz0wwd4kxdwq5yc1m8r11h0000gn/T/whisper_chunks_t1o48zrt
+2025-06-16 09:23:52.414 | INFO | whisper | [MainProcess-71271] | [MainThread-8551128832] | audio_chunker.py:200 | Cleaned up chunk directory: /var/folders/72/45lz0wwd4kxdwq5yc1m8r11h0000gn/T/whisper_chunks_fxgon78b
