@@ -1,3 +1,0 @@
-2025-06-16 00:43:31.523 | INFO | whisper | [MainProcess-43733] | [MainThread-8551128832] | logger.py:95 | Process 43733 (worker-43733) logging to /Users/arstep/Desktop/forms/logs/unknown_app-worker-43733.current.log
-2025-06-16 00:43:31.523 | WARNING | whisper | [MainProcess-43733] | [MainThread-8551128832] | logger.py:99 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
-2025-06-16 00:43:31.524 | INFO | whisper | [MainProcess-43733] | [MainThread-8551128832] | audio_chunker.py:47 | Initialized AudioChunker: max_size=24.0MB, target_size=23.0MB, overlap=3.0s

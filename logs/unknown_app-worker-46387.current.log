@@ -1,8 +1,0 @@
-2025-06-16 01:04:42.096 | INFO | whisper | [MainProcess-46387] | [MainThread-8551128832] | logger.py:95 | Process 46387 (worker-46387) logging to /Users/arstep/Desktop/forms/logs/unknown_app-worker-46387.current.log
-2025-06-16 01:04:42.096 | WARNING | whisper | [MainProcess-46387] | [MainThread-8551128832] | logger.py:99 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.
-2025-06-16 01:04:42.098 | INFO | whisper | [MainProcess-46387] | [MainThread-8551128832] | audio_chunker.py:47 | Initialized AudioChunker: max_size=24.0MB, target_size=23.0MB, overlap=3.0s
-2025-06-16 01:04:42.129 | INFO | whisper | [MainProcess-46387] | [MainThread-8551128832] | audio_chunker.py:62 | Starting audio chunking for: /var/folders/72/45lz0wwd4kxdwq5yc1m8r11h0000gn/T/tmp5okpebk0.wav
-2025-06-16 01:04:42.129 | INFO | whisper | [MainProcess-46387] | [MainThread-8551128832] | audio_chunker.py:69 | Audio info: duration=5.00s, size=0.42MB
-2025-06-16 01:04:42.129 | INFO | whisper | [MainProcess-46387] | [MainThread-8551128832] | audio_chunker.py:73 | File size (0.42MB) <= 24.0MB, processing as whole file
-2025-06-16 01:04:42.130 | INFO | whisper | [MainProcess-46387] | [MainThread-8551128832] | audio_chunker.py:106 | Created whole file chunk: chunk_whole_4af3f59f (5.00s)
-2025-06-16 01:04:42.131 | INFO | whisper | [MainProcess-46387] | [MainThread-8551128832] | audio_chunker.py:330 | Cleaned up chunk directory: /var/folders/72/45lz0wwd4kxdwq5yc1m8r11h0000gn/T/whisper_chunks_4gxnd5iv

@@ -1,115 +1,144 @@
 """
-Audio file downloader for fetching audio files from Azure Blob Storage.
-Handles Step 1 of the whisper pipeline: Input Processing.
+Audio File Downloader for Azure Blob Storage.
+Downloads audio files from blob storage using the filename as blob name.
 """
 import os
 import tempfile
-from typing import Optional
+from typing import Tuple, Optional
 from common_new.blob_storage import AsyncBlobStorageDownloader
 from common_new.logger import get_logger
 
-logger = get_logger("whisper")
+logger = get_logger("audio_downloader")
 
 class AudioFileDownloader:
-    """
-    Handles downloading audio files from Azure Blob Storage for processing.
+    """Downloads audio files from Azure Blob Storage."""
     
-    This class implements Step 1 of the whisper pipeline: receiving audio files
-    from Azure Blob Storage based on filename from service bus message.
-    """
-    
-    def __init__(self):
-        """Initialize the downloader with environment variables."""
-        self.account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
-        self.container_name = os.getenv("WHISPER_AUDIO_CONTAINER", "audio-files")
-        
-        # Create temporary directory for audio downloads
-        self.temp_dir = tempfile.mkdtemp(prefix="whisper_audio_")
-        logger.info(f"Created temporary directory for audio: {self.temp_dir}")
-        
-        if not self.account_url:
-            raise ValueError("AZURE_STORAGE_ACCOUNT_URL environment variable is required")
-        
-        self.downloader = AsyncBlobStorageDownloader(
-            account_url=self.account_url,
-            container_name=self.container_name,
-            download_dir=self.temp_dir
-        )
-    
-    async def download_audio_file(self, filename: str) -> Optional[str]:
+    def __init__(self, container_name: Optional[str] = None):
         """
-        Download an audio file from Azure Blob Storage.
+        Initialize the downloader.
         
         Args:
-            filename: Name of the audio file (blob name) to download
+            container_name: Azure blob container name (if None, will use env var)
+        """
+        # Azure Storage configuration
+        account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL", "https://your-account.blob.core.windows.net")
+        self.container_name = container_name or os.getenv("AZURE_AUDIO_CONTAINER_NAME", "audio-files")
+        
+        # Initialize blob downloader
+        self.blob_service = AsyncBlobStorageDownloader(
+            account_url=account_url,
+            container_name=self.container_name
+        )
+        
+        # Create temp directory for downloads
+        self.temp_dir = tempfile.mkdtemp(prefix="whisper_downloads_")
+        logger.info(f"Initialized AudioFileDownloader with container: {self.container_name}")
+        logger.info(f"Using temp directory: {self.temp_dir}")
+    
+    async def download_audio_file(self, filename: str) -> Tuple[bool, str, str]:
+        """
+        Download audio file from blob storage.
+        
+        Args:
+            filename: The filename/blob name to download
             
         Returns:
-            str: Local path to the downloaded file, or None if download failed
+            Tuple[bool, str, str]: (success, local_file_path, error_message)
         """
         try:
             logger.info(f"Starting download of audio file: {filename}")
             
-            # Initialize the downloader if not already done
-            if not self.downloader._initialized:
-                success = await self.downloader.initialize()
-                if not success:
-                    logger.error("Failed to initialize blob storage downloader")
-                    return None
+            # Ensure the filename has a valid audio extension
+            if not self._is_valid_audio_file(filename):
+                error_msg = f"Invalid audio file format: {filename}"
+                logger.error(error_msg)
+                return False, "", error_msg
             
-            # Download the file
-            local_path = await self.downloader.download_file(filename)
+            # Create local file path
+            local_file_path = os.path.join(self.temp_dir, filename)
             
-            if local_path and os.path.exists(local_path):
-                file_size = os.path.getsize(local_path)
-                logger.info(f"Successfully downloaded {filename} to {local_path} ({file_size} bytes)")
-                return local_path
+            # Initialize downloader if needed
+            await self.blob_service.initialize()
+            
+            # Download from blob storage
+            downloaded_path = await self.blob_service.download_file(
+                blob_name=filename,
+                local_file_path=local_file_path
+            )
+            success = downloaded_path is not None
+            
+            if success:
+                # Verify file was downloaded and has content
+                if os.path.exists(local_file_path) and os.path.getsize(local_file_path) > 0:
+                    file_size_mb = os.path.getsize(local_file_path) / (1024 * 1024)
+                    logger.info(f"Successfully downloaded {filename} ({file_size_mb:.2f} MB) to {local_file_path}")
+                    return True, local_file_path, ""
+                else:
+                    error_msg = f"Downloaded file is empty or doesn't exist: {local_file_path}"
+                    logger.error(error_msg)
+                    return False, "", error_msg
             else:
-                logger.error(f"Failed to download audio file: {filename}")
-                return None
+                error_msg = f"Failed to download {filename} from blob storage"
+                logger.error(error_msg)
+                return False, "", error_msg
                 
         except Exception as e:
-            logger.error(f"Error downloading audio file {filename}: {str(e)}")
-            return None
+            error_msg = f"Error downloading audio file {filename}: {str(e)}"
+            logger.error(error_msg)
+            return False, "", error_msg
     
-    def get_audio_info(self, local_path: str) -> dict:
+    def _is_valid_audio_file(self, filename: str) -> bool:
         """
-        Get basic information about the downloaded audio file.
+        Check if filename has a valid audio extension.
         
         Args:
-            local_path: Path to the local audio file
+            filename: The filename to check
             
         Returns:
-            dict: Audio file information
+            bool: True if valid audio file extension
+        """
+        valid_extensions = {'.wav', '.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.webm', '.flac'}
+        file_extension = os.path.splitext(filename)[1].lower()
+        return file_extension in valid_extensions
+    
+    def verify_stereo_format(self, file_path: str) -> Tuple[bool, dict]:
+        """
+        Verify that the audio file is in stereo format (2 channels).
+        
+        Args:
+            file_path: Path to the audio file
+            
+        Returns:
+            Tuple[bool, dict]: (is_stereo, audio_info)
         """
         try:
-            from pydub import AudioSegment
+            import soundfile as sf
             
-            # Load audio file with pydub
-            audio = AudioSegment.from_file(local_path)
+            # Get audio file info
+            info = sf.info(file_path)
             
-            # Get duration in seconds
-            duration = len(audio) / 1000.0
-            
-            return {
-                "file_path": local_path,
-                "file_size": os.path.getsize(local_path),
-                "duration": duration,
-                "format": os.path.splitext(local_path)[1].lower(),
-                "sample_rate": audio.frame_rate,
-                "channels": audio.channels
+            audio_info = {
+                'channels': info.channels,
+                'sample_rate': info.samplerate,
+                'duration': info.frames / info.samplerate,
+                'format': info.format,
+                'subtype': info.subtype
             }
+            
+            is_stereo = info.channels == 2
+            
+            if is_stereo:
+                logger.info(f"Audio file verified as stereo: {audio_info}")
+            else:
+                logger.warning(f"Audio file is not stereo ({info.channels} channels): {audio_info}")
+            
+            return is_stereo, audio_info
+            
         except Exception as e:
-            logger.warning(f"Could not get audio info for {local_path}: {str(e)}")
-            return {
-                "file_path": local_path,
-                "file_size": os.path.getsize(local_path),
-                "duration": None,
-                "format": os.path.splitext(local_path)[1].lower(),
-                "sample_rate": None,
-                "channels": None
-            }
+            logger.error(f"Error verifying audio format for {file_path}: {str(e)}")
+            return False, {}
     
-    def cleanup_temp_files(self):
+    def cleanup(self):
         """Clean up temporary downloaded files."""
         try:
             import shutil
@@ -117,4 +146,8 @@ class AudioFileDownloader:
                 shutil.rmtree(self.temp_dir)
                 logger.info(f"Cleaned up temporary directory: {self.temp_dir}")
         except Exception as e:
-            logger.error(f"Error cleaning up temporary files: {str(e)}") 
+            logger.error(f"Error cleaning up temp directory {self.temp_dir}: {str(e)}")
+    
+    def __del__(self):
+        """Cleanup on object destruction."""
+        self.cleanup()

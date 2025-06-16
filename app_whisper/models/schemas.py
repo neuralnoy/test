@@ -1,5 +1,6 @@
-from pydantic import BaseModel, ConfigDict
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, ConfigDict, Field
+from typing import List, Optional, Dict, Any, Literal
+from enum import Enum
 
 class InputWhisper(BaseModel):
     id: str
@@ -8,43 +9,60 @@ class InputWhisper(BaseModel):
     client_manager: Optional[str] = None
 
 class SpeakerSegment(BaseModel):
-    """Represents a speaker diarization segment."""
-    speaker_id: str
-    start_time: float
-    end_time: float
-    confidence: float = 0.0
+    """Individual speaker segment with timestamp and speaker ID."""
+    start_time: float = Field(..., description="Start time in seconds")
+    end_time: float = Field(..., description="End time in seconds") 
+    speaker_id: str = Field(..., description="Speaker identifier (Speaker_1 or Speaker_2)")
+    text: str = Field(default="", description="Transcribed text for this segment")
+    confidence: Optional[float] = Field(default=None, description="Confidence score")
+
+class ChannelInfo(BaseModel):
+    """Information about audio channel processing."""
+    channel_id: str = Field(..., description="Channel identifier (left/right)")
+    speaker_id: str = Field(..., description="Associated speaker ID")
+    file_path: str = Field(..., description="Path to processed channel file")
+    duration: float = Field(..., description="Duration in seconds")
+    file_size_mb: float = Field(..., description="File size in megabytes")
 
 class AudioChunk(BaseModel):
-    """Represents an audio chunk with overlap information for transcription."""
-    # Uncomment the line below to disable validation if needed
-    # model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=False)
-    
-    chunk_id: str
-    file_path: str
-    start_time: float
-    end_time: float
-    duration: float
-    file_size: int
-    overlap_duration: float = 0.0  # Overlap duration with next chunk (seconds)
-    speaker_segments: List[SpeakerSegment] = []  # Speaker segments in this chunk
-    is_whole_file: bool = False  # True if this chunk is the entire file
+    """Audio chunk for processing large files."""
+    chunk_id: str = Field(..., description="Unique chunk identifier")
+    channel_info: ChannelInfo = Field(..., description="Channel information")
+    start_time: float = Field(..., description="Start time in original audio")
+    end_time: float = Field(..., description="End time in original audio")
+    file_path: str = Field(..., description="Path to chunk file")
+    file_size_mb: float = Field(..., description="Chunk file size in MB")
 
-class ChunkTranscription(BaseModel):
-    """Represents transcription result for a single chunk."""
-    chunk_id: str
-    start_time: float
-    end_time: float
-    text: str
-    confidence: float = 0.0
-    whisper_result: Optional[Dict[str, Any]] = None  # Full Whisper API response
-    error: Optional[str] = None
-    file_path: Optional[str] = None
+class WhisperTranscriptionResult(BaseModel):
+    """Result from Whisper transcription."""
+    text: str = Field(..., description="Full transcribed text")
+    segments: List[Dict[str, Any]] = Field(default_factory=list, description="Whisper segments with timestamps")
+    language: Optional[str] = Field(default=None, description="Detected language")
+    confidence: float = Field(default=0.0, description="Overall confidence score")
+
+class ProcessingMetadata(BaseModel):
+    """Metadata about the processing pipeline."""
+    filename: str
+    processing_time_seconds: float
+    transcription_method: str = Field(description="Method used (chunked/direct)")
+    chunk_method: str = Field(description="Chunking approach used")
+    total_chunks: int = Field(default=0, description="Total number of chunks processed")
+    has_speaker_alignment: bool = Field(default=False, description="Whether speaker alignment was performed")
+    
+    # Diarization summary
+    diarization_summary: Dict[str, Any] = Field(default_factory=dict, description="Summary of diarization results")
+    
+    # Audio information
+    original_audio_info: Dict[str, Any] = Field(default_factory=dict, description="Original audio file info")
+    preprocessed_audio_info: Dict[str, Any] = Field(default_factory=dict, description="Preprocessed audio info")
 
 class InternalWhisperResult(BaseModel):
     """Internal result from whisper processing."""
     text: str
-    confidence: float = 0.0
-    processing_metadata: Dict[str, Any] = {}
+    diarization: bool
+    confidence: float = Field(default=0.0, description="Overall confidence score")
+    speaker_segments: List[SpeakerSegment] = Field(default_factory=list, description="Speaker-labeled segments")
+    processing_metadata: ProcessingMetadata = Field(..., description="Processing metadata and statistics")
 
 class OutputWhisper(BaseModel):
     id: str

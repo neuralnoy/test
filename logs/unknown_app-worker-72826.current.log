@@ -1,2 +1,0 @@
-2025-06-16 09:35:44.085 | INFO | common | [MainProcess-72826] | [MainThread-8551128832] | logger.py:95 | Process 72826 (worker-72826) logging to /Users/arstep/Desktop/forms/logs/unknown_app-worker-72826.current.log
-2025-06-16 09:35:44.085 | WARNING | common | [MainProcess-72826] | [MainThread-8551128832] | logger.py:99 | APP_NAME environment variable not set. Using 'unknown_app' as fallback.

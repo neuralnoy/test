@@ -1,7 +1,7 @@
 import json
 from common_new.logger import get_logger
 from app_whisper.models.schemas import InputWhisper, OutputWhisper
-from app_whisper.services.businesslogic.audio_processor import process_audio
+from app_whisper.services.businesslogic.pipeline import run_pipeline
 
 logger = get_logger("whisper")
 
@@ -25,7 +25,7 @@ async def process_data(message_body: str) -> OutputWhisper:
         whisper_data = InputWhisper(**data_dict)
         
         # Process the whisper data using Azure OpenAI
-        success, result = await process_audio(whisper_data.filename)
+        success, result = await run_pipeline(whisper_data.filename)
         
         if success:            
             # This is what will be sent to the queue
