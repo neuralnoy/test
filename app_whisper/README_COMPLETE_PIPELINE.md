@@ -133,9 +133,7 @@ MIN_SEGMENT_DURATION = 1.0  # seconds
 SIMILARITY_THRESHOLD = 0.75 # cosine similarity
 
 # Audio Chunking
-MAX_FILE_SIZE_MB = 24.0     # Whisper limit
-TARGET_CHUNK_DURATION = 30.0 # seconds
-OVERLAP_DURATION = 3.0      # seconds
+MAX_FILE_SIZE_MB = 24.0     # Whisper limit - if file > 24MB, create size-based chunks
 
 # Transcription
 MAX_CONCURRENT = 5          # concurrent requests

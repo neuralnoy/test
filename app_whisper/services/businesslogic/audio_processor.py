@@ -102,10 +102,7 @@ async def process_audio(filename: str) -> Tuple[bool, InternalWhisperResult]:
         # Step 4: Audio chunking
         logger.info("=== STEP 4: AUDIO CHUNKING ===")
         chunker = AudioChunker(
-            max_file_size_mb=24.0,
-            target_chunk_size_mb=23.0,  # Target ~23MB chunks (under 24MB limit)
-            overlap_duration=3.0,
-            min_chunk_duration=30.0  # Minimum 30 seconds per chunk
+            max_file_size_mb=24.0  # Simple: if file > 24MB, create chunks
         )
         
         audio_chunks = chunker.chunk_audio(preprocessed_audio_path, speaker_segments)
