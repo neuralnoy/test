@@ -34,7 +34,7 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
     
     1. Download Audio File from Azure Blob Storage
     2. Verify stereo format (optional)
-    3. Preprocess Audio (split channels, resample, trim silence, convert to FLAC)
+    3. Preprocess Audio (split channels, resample, trim silence, save as WAV)
     4. Channel-Specific Audio Chunking (if needed)
     5. Parallel Whisper Transcription for both channels
     6. Speaker Segment Creation & Alignment
@@ -218,7 +218,7 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
                 'channels': len(channel_info_list),
                 'duration': max(ch.duration for ch in channel_info_list),
                 'sample_rate': 16000,  # We resample to 16kHz
-                'format': 'FLAC'
+                'format': 'WAV'
             }
         
         diarization_summary = {

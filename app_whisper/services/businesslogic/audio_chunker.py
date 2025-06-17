@@ -178,11 +178,11 @@ class AudioChunker:
                 chunk_audio = audio_data[start_sample:end_sample]
                 
                 # Create chunk file
-                chunk_filename = f"{channel_info.speaker_id}_chunk_{chunk_idx}.flac"
+                chunk_filename = f"{channel_info.speaker_id}_chunk_{chunk_idx}.wav"
                 chunk_path = os.path.join(self.temp_dir, chunk_filename)
                 
-                # Save chunk as FLAC
-                sf.write(chunk_path, chunk_audio, sample_rate, format='FLAC', subtype='PCM_16')
+                # Save chunk as WAV
+                sf.write(chunk_path, chunk_audio, sample_rate, format='WAV', subtype='PCM_16')
                 
                 # Calculate chunk file size
                 chunk_size_bytes = os.path.getsize(chunk_path)
