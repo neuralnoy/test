@@ -30,7 +30,7 @@ async def process_data(message_body: str) -> OutputWhisper:
         if success:            
             # This is what will be sent to the queue
             # Determine if diarization was performed based on processing metadata
-            has_diarization = result.processing_metadata.get("diarization_summary", {}).get("num_speakers", 0) > 1
+            has_diarization = result.processing_metadata.diarization_summary.get("num_speakers", 0) > 1
             
             output_data = OutputWhisper(
                 id=whisper_data.id,
