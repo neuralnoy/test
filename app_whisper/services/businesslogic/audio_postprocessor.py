@@ -50,9 +50,9 @@ class TranscriptionPostProcessor:
             if not speaker_segments:
                 return False, {}, "No speaker segments provided for transcript creation"
             
-            # Step 6a: Create final diarized transcript with speaker labels
-            logger.info("Step 6a: Creating diarized transcript with speaker labels")
-            diarized_transcript = self._create_diarized_transcript(speaker_segments)
+            # Step 6a: Create consolidated transcript without timestamps and with speaker consolidation
+            logger.info("Step 6a: Creating consolidated transcript")
+            diarized_transcript = self._create_consolidated_transcript(speaker_segments)
             
             # Step 6b: Generate conversation flow with proper formatting
             logger.info("Step 6b: Generating conversation flow with proper formatting")
@@ -75,7 +75,7 @@ class TranscriptionPostProcessor:
                 'timing_summary': timing_summary,
                 'confidence': overall_confidence,
                 'format_info': {
-                    'includes_timestamps': self.include_timestamps,
+                    'includes_timestamps': False,  # Updated to reflect consolidated format
                     'includes_confidence': self.include_confidence,
                     'total_segments': len(speaker_segments),
                     'speakers': list(set(seg.speaker_id for seg in speaker_segments))
@@ -93,15 +93,16 @@ class TranscriptionPostProcessor:
             logger.error(error_msg)
             return False, {}, error_msg
     
-    def _create_diarized_transcript(self, speaker_segments: List[SpeakerSegment]) -> str:
+    def _create_consolidated_transcript(self, speaker_segments: List[SpeakerSegment]) -> str:
         """
-        Create a diarized transcript with speaker labels and optional timestamps.
+        Create a consolidated transcript without timestamps and with speaker consolidation.
+        Only shows speaker labels when the speaker changes.
         
         Args:
             speaker_segments: List of SpeakerSegment objects sorted by time
             
         Returns:
-            String containing the formatted diarized transcript
+            String containing the consolidated transcript
         """
         transcript_lines = []
         
@@ -109,33 +110,41 @@ class TranscriptionPostProcessor:
             # Sort segments by start time to ensure chronological order
             sorted_segments = sorted(speaker_segments, key=lambda x: x.start_time)
             
+            if not sorted_segments:
+                return ""
+            
+            current_speaker = None
+            current_text_parts = []
+            
             for segment in sorted_segments:
-                # Format speaker line
-                speaker_line = f"{segment.speaker_id}:"
-                
-                # Add timestamp if enabled
-                if self.include_timestamps:
-                    timestamp = self._format_timestamp(segment.start_time)
-                    speaker_line += f" {timestamp}"
-                
-                # Add confidence if enabled
-                if self.include_confidence and segment.confidence is not None:
-                    speaker_line += f" (conf: {segment.confidence:.2f})"
-                
-                # Add the transcribed text
-                speaker_line += f" {segment.text}"
-                
-                transcript_lines.append(speaker_line)
+                # Check if speaker changed
+                if segment.speaker_id != current_speaker:
+                    # If we have accumulated text from previous speaker, add it
+                    if current_speaker is not None and current_text_parts:
+                        combined_text = " ".join(current_text_parts)
+                        transcript_lines.append(f"{current_speaker}: {combined_text}")
+                    
+                    # Start new speaker section
+                    current_speaker = segment.speaker_id
+                    current_text_parts = [segment.text]
+                else:
+                    # Same speaker, accumulate text
+                    current_text_parts.append(segment.text)
+            
+            # Add the final speaker section
+            if current_speaker is not None and current_text_parts:
+                combined_text = " ".join(current_text_parts)
+                transcript_lines.append(f"{current_speaker}: {combined_text}")
             
             # Join all lines with newlines
             full_transcript = "\n".join(transcript_lines)
             
-            logger.info(f"Created diarized transcript with {len(transcript_lines)} segments")
+            logger.info(f"Created consolidated transcript with {len(transcript_lines)} speaker sections")
             
             return full_transcript
             
         except Exception as e:
-            logger.error(f"Error creating diarized transcript: {str(e)}")
+            logger.error(f"Error creating consolidated transcript: {str(e)}")
             return "Error creating transcript"
     
     def _generate_conversation_flow(self, speaker_segments: List[SpeakerSegment]) -> List[Dict[str, Any]]:
