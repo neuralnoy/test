@@ -235,7 +235,7 @@ class SpeakerDiarizer:
                                    overlap_info: Dict[str, Any]) -> List[SpeakerSegment]:
         """
         Clean up overlapping speech by removing non-dominant speakers during overlap periods.
-        Uses text density (50%) and duration coverage (50%) to determine dominance.
+        Uses duration coverage (70%) and text density (30%) to determine dominance.
         
         Args:
             sorted_segments: List of SpeakerSegments sorted by start_time
@@ -312,7 +312,7 @@ class SpeakerDiarizer:
                                    overlap: Dict[str, Any]) -> str:
         """
         Determine which speaker is dominant during an overlap period.
-        Uses text density (50%) and duration coverage (50%) to calculate dominance.
+        Uses duration coverage (70%) and text density (30%) to calculate dominance.
         
         Args:
             overlapping_segments: List of (index, SpeakerSegment) tuples for overlapping segments
@@ -361,8 +361,8 @@ class SpeakerDiarizer:
                 else:
                     text_score = 0.1  # Low score for segments with no meaningful text
                 
-                # Combined dominance score (equal weights)
-                dominance_score = (duration_score * 0.5) + (text_score * 0.5)
+                # Combined dominance score (duration-weighted: 70% duration + 30% text)
+                dominance_score = (duration_score * 0.7) + (text_score * 0.3)
                 
                 # Track best score for each speaker
                 if speaker_id not in speaker_scores:
