@@ -8,7 +8,7 @@ from typing import Tuple, Optional
 from common_new.blob_storage import AsyncBlobStorageDownloader
 from common_new.logger import get_logger
 
-logger = get_logger("audio_downloader")
+logger = get_logger("businesslogic")
 
 class AudioFileDownloader:
     """Downloads audio files from Azure Blob Storage."""

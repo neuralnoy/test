@@ -9,22 +9,31 @@ from app_whisper.models.schemas import AudioChunk, WhisperTranscriptionResult
 from common_new.azure_openai_service import AzureOpenAIServiceWhisper
 from common_new.logger import get_logger
 
-logger = get_logger("audio_transcriber")
+logger = get_logger("businesslogic")
 
 class WhisperTranscriber:
-    """Handles parallel Whisper transcription using the service's built-in concurrency management."""
+    """Handles parallel Whisper transcription with rate limiting."""
     
-    def __init__(self):
+    def __init__(self, max_concurrent_requests: int = 3, request_delay: float = 0.1):
         """
-        Initialize the transcriber using the service's built-in concurrency management.
+        Initialize the transcriber.
+        
+        Args:
+            max_concurrent_requests: Maximum number of concurrent API requests
+            request_delay: Delay in seconds between API requests
         """
+        self.max_concurrent_requests = max_concurrent_requests
+        self.request_delay = request_delay
         self.whisper_service = AzureOpenAIServiceWhisper(app_id="whisper_app")
         
-        logger.info(f"Initialized WhisperTranscriber using service's built-in concurrent transcription")
+        # Semaphore to limit concurrent requests
+        self.semaphore = asyncio.Semaphore(max_concurrent_requests)
+        
+        logger.info(f"Initialized WhisperTranscriber with max_concurrent: {max_concurrent_requests}, delay: {request_delay}s")
     
     async def transcribe_channel_chunks(self, audio_chunks: List[AudioChunk]) -> Tuple[bool, Dict[str, Any], str]:
         """
-        Transcribe all audio chunks using the service's built-in concurrent transcription.
+        Transcribe all audio chunks with proper rate limiting and concurrency.
         
         Args:
             audio_chunks: List of AudioChunk objects to transcribe
@@ -33,7 +42,7 @@ class WhisperTranscriber:
             Tuple[bool, Dict[str, Any], str]: (success, results_dict, error_message)
         """
         try:
-            logger.info(f"Starting transcription of {len(audio_chunks)} audio chunks using transcribe_audio_chunks")
+            logger.info(f"Starting transcription of {len(audio_chunks)} audio chunks")
             
             if not audio_chunks:
                 return False, {}, "No audio chunks provided for transcription"
@@ -41,24 +50,19 @@ class WhisperTranscriber:
             # Group chunks by speaker for organized processing
             speaker_chunks = self._group_chunks_by_speaker(audio_chunks)
             
-            # Extract file paths for the transcribe_audio_chunks method
-            file_paths = [chunk.file_path for chunk in audio_chunks]
+            # Create transcription tasks with rate limiting
+            transcription_tasks = []
+            for chunk in audio_chunks:
+                task = self._transcribe_single_chunk_with_rate_limit(chunk)
+                transcription_tasks.append(task)
             
-            # Use the service's built-in concurrent transcription method
-            logger.info(f"Calling transcribe_audio_chunks with {len(file_paths)} files")
-            raw_results = await self.whisper_service.transcribe_audio_chunks(
-                audio_file_paths=file_paths,
-                response_format="verbose_json",
-                timestamp_granularities=["segment", "word"],
-                temperature=0.0
-            )
-            
-            # Process and enhance results with chunk metadata
-            enhanced_results = self._enhance_results_with_chunk_metadata(audio_chunks, raw_results)
+            # Execute all transcriptions with controlled concurrency
+            logger.info(f"Executing {len(transcription_tasks)} transcription tasks with max {self.max_concurrent_requests} concurrent")
+            results = await asyncio.gather(*transcription_tasks, return_exceptions=True)
             
             # Process results and check for errors
             success, processed_results, error_msg = self._process_transcription_results(
-                audio_chunks, enhanced_results, speaker_chunks
+                audio_chunks, results, speaker_chunks
             )
             
             if success:
@@ -73,55 +77,47 @@ class WhisperTranscriber:
             logger.error(error_msg)
             return False, {}, error_msg
     
-    def _enhance_results_with_chunk_metadata(self, audio_chunks: List[AudioChunk], raw_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    async def _transcribe_single_chunk_with_rate_limit(self, chunk: AudioChunk) -> Dict[str, Any]:
         """
-        Enhance raw transcription results with chunk metadata.
+        Transcribe a single chunk with rate limiting.
         
         Args:
-            audio_chunks: Original audio chunks (in same order as raw_results)
-            raw_results: Raw results from transcribe_audio_chunks
+            chunk: AudioChunk to transcribe
             
         Returns:
-            List of enhanced results with chunk metadata
+            Dict containing transcription result or error information
         """
-        enhanced_results = []
-        
-        for i, (chunk, raw_result) in enumerate(zip(audio_chunks, raw_results)):
+        async with self.semaphore:
             try:
-                # Check if this result contains an error
-                if 'error' in raw_result:
-                    logger.warning(f"Chunk {chunk.chunk_id} had transcription error: {raw_result.get('error')}")
-                    enhanced_result = {
-                        'chunk_id': chunk.chunk_id,
-                        'speaker_id': chunk.channel_info.speaker_id,
-                        'start_time_offset': chunk.start_time,
-                        'end_time_offset': chunk.end_time,
-                        'success': False,
-                        'error': raw_result.get('error', 'Unknown error'),
-                        'text': raw_result.get('text', ""),
-                        'segments': []
-                    }
-                else:
-                    # Successful transcription - enhance with chunk metadata
-                    enhanced_result = raw_result.copy()
-                    enhanced_result.update({
-                        'chunk_id': chunk.chunk_id,
-                        'speaker_id': chunk.channel_info.speaker_id,
-                        'start_time_offset': chunk.start_time,
-                        'end_time_offset': chunk.end_time,
-                        'success': True
-                    })
-                    
-                    logger.info(f"Successfully enhanced chunk {chunk.chunk_id}: {len(enhanced_result.get('text', ''))} characters")
+                # Add delay to prevent API rate limiting
+                if self.request_delay > 0:
+                    await asyncio.sleep(self.request_delay)
                 
-                enhanced_results.append(enhanced_result)
+                logger.info(f"Transcribing chunk: {chunk.chunk_id} ({chunk.start_time:.2f}s-{chunk.end_time:.2f}s)")
+                
+                # Call Whisper API with verbose JSON and timestamp granularities
+                result = await self.whisper_service.transcribe_audio(
+                    audio_file_path=chunk.file_path,
+                    response_format="verbose_json",
+                    timestamp_granularities=["segment", "word"],
+                    temperature=0.0
+                )
+                
+                # Add chunk metadata to result
+                result['chunk_id'] = chunk.chunk_id
+                result['speaker_id'] = chunk.channel_info.speaker_id
+                result['start_time_offset'] = chunk.start_time
+                result['end_time_offset'] = chunk.end_time
+                result['success'] = True
+                
+                logger.info(f"Successfully transcribed chunk {chunk.chunk_id}: {len(result.get('text', ''))} characters")
+                return result
                 
             except Exception as e:
-                error_msg = f"Error enhancing results for chunk {chunk.chunk_id}: {str(e)}"
+                error_msg = f"Error transcribing chunk {chunk.chunk_id}: {str(e)}"
                 logger.error(error_msg)
                 
-                # Create fallback result
-                fallback_result = {
+                return {
                     'chunk_id': chunk.chunk_id,
                     'speaker_id': chunk.channel_info.speaker_id,
                     'start_time_offset': chunk.start_time,
@@ -131,10 +127,6 @@ class WhisperTranscriber:
                     'text': "",
                     'segments': []
                 }
-                enhanced_results.append(fallback_result)
-        
-        logger.info(f"Enhanced {len(enhanced_results)} transcription results with chunk metadata")
-        return enhanced_results
     
     def _group_chunks_by_speaker(self, audio_chunks: List[AudioChunk]) -> Dict[str, List[AudioChunk]]:
         """
@@ -162,30 +154,45 @@ class WhisperTranscriber:
     
     def _process_transcription_results(self, 
                                      audio_chunks: List[AudioChunk], 
-                                     results: List[Dict[str, Any]],
+                                     results: List[Any],
                                      speaker_chunks: Dict[str, List[AudioChunk]]) -> Tuple[bool, Dict[str, Any], str]:
         """
         Process and validate transcription results.
         
         Args:
             audio_chunks: Original audio chunks
-            results: Enhanced results with chunk metadata
+            results: Results from asyncio.gather
             speaker_chunks: Chunks grouped by speaker
             
         Returns:
             Tuple[bool, Dict[str, Any], str]: (success, processed_results, error_message)
         """
         try:
-            # Check for failed transcriptions
+            # Check for exceptions in results
             failed_chunks = []
             successful_results = []
             
-            for result in results:
-                if not result.get('success', False):
-                    failed_chunks.append(f"Chunk {result.get('chunk_id', 'unknown')}: {result.get('error', 'Unknown error')}")
-                
-                # Add all results to successful_results for processing (including failed ones for completeness)
-                successful_results.append(result)
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    failed_chunks.append(f"Chunk {i}: {str(result)}")
+                    # Create fallback result
+                    chunk = audio_chunks[i]
+                    fallback_result = {
+                        'chunk_id': chunk.chunk_id,
+                        'speaker_id': chunk.channel_info.speaker_id,
+                        'start_time_offset': chunk.start_time,
+                        'end_time_offset': chunk.end_time,
+                        'success': False,
+                        'error': str(result),
+                        'text': "",
+                        'segments': []
+                    }
+                    successful_results.append(fallback_result)
+                elif not result.get('success', False):
+                    failed_chunks.append(f"Chunk {result.get('chunk_id', i)}: {result.get('error', 'Unknown error')}")
+                    successful_results.append(result)
+                else:
+                    successful_results.append(result)
             
             # Log any failures but continue processing
             if failed_chunks:

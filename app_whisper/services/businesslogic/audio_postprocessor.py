@@ -6,7 +6,7 @@ from typing import Tuple, List, Dict, Any, Optional
 from app_whisper.models.schemas import SpeakerSegment, WhisperTranscriptionResult
 from common_new.logger import get_logger
 
-logger = get_logger("transcription_postprocessor")
+logger = get_logger("businesslogic")
 
 class TranscriptionPostProcessor:
     """Handles final transcript assembly and formatting."""

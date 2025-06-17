@@ -6,7 +6,7 @@ from typing import Tuple, List, Dict, Any
 from app_whisper.models.schemas import AudioChunk, SpeakerSegment, WhisperTranscriptionResult
 from common_new.logger import get_logger
 
-logger = get_logger("speaker_diarizer")
+logger = get_logger("businesslogic")
 
 class SpeakerDiarizer:
     """Handles channel-based speaker diarization and segment creation."""

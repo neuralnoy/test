@@ -9,7 +9,7 @@ from typing import Tuple, List, Dict, Any
 from app_whisper.models.schemas import ChannelInfo
 from common_new.logger import get_logger
 
-logger = get_logger("audio_preprocessor")
+logger = get_logger("businesslogic")
 
 class AudioPreprocessor:
     """Preprocesses stereo audio for channel-based speaker diarization."""

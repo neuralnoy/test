@@ -9,7 +9,7 @@ from typing import Tuple, List, Dict, Any
 from app_whisper.models.schemas import ChannelInfo, AudioChunk
 from common_new.logger import get_logger
 
-logger = get_logger("audio_chunker")
+logger = get_logger("businesslogic")
 
 class AudioChunker:
     """Simple size-based audio chunker for channel processing."""
