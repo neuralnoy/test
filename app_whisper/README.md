@@ -56,6 +56,13 @@ OPENAI_API_BASE=https://your-azure-openai-endpoint.openai.azure.com/  # For Azur
 
 # Optional: Application Name for logging
 APP_NAME=audio_processor
+
+# Timeout configuration
+WHISPER_HTTP_TIMEOUT_SECONDS=1800  # 30 minutes (default)
+WHISPER_OPERATION_TIMEOUT_SECONDS=1200  # 20 minutes (default)
+
+# Rate limiting (configured in app_counter)
+APP_WHISPER_RPM_QUOTA=15  # Whisper requests per minute
 ```
 
 ## Installation
@@ -300,3 +307,197 @@ When modifying the pipeline:
 ## License
 
 [Include your license information here]
+
+## Recent Improvements
+
+### Rate Limiting and Retry Logic
+
+The service now implements robust rate limiting similar to `app_feedbackform`:
+
+1. **Automatic Rate Limit Detection**: When the counter app signals rate limits are exceeded, the service automatically waits for the reset period before retrying
+2. **Whisper-Specific Rate Limiting**: Dedicated rate limiting for Whisper API calls with configurable limits
+3. **Exponential Backoff**: Smart retry logic with exponential backoff for transient failures
+4. **Pipeline-Level Retries**: The entire processing pipeline can retry on rate limit errors
+
+### Timeout Handling
+
+Enhanced timeout handling for long-running operations:
+
+1. **Extended HTTP Timeouts**: HTTP client sessions now support up to 30 minutes (configurable)
+2. **Operation-Level Timeouts**: Transcription operations have a 20-minute timeout with proper cancellation
+3. **Retry on Timeout**: Automatic retry for timeout errors with exponential backoff
+4. **Resource Cleanup**: Proper cleanup of resources when timeouts occur
+
+### Error Recovery
+
+Comprehensive error recovery mechanisms:
+
+1. **Graceful Degradation**: Failed chunks don't cause entire pipeline failure
+2. **Resource Cleanup**: Robust cleanup even during failures and timeouts
+3. **Memory Management**: Forced garbage collection after long operations
+4. **Detailed Logging**: Enhanced logging for debugging rate limit and timeout issues
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# Timeout configuration
+WHISPER_HTTP_TIMEOUT_SECONDS=1800  # 30 minutes (default)
+WHISPER_OPERATION_TIMEOUT_SECONDS=1200  # 20 minutes (default)
+
+# Rate limiting (configured in app_counter)
+APP_WHISPER_RPM_QUOTA=15  # Whisper requests per minute
+```
+
+### Rate Limiting Configuration
+
+The service integrates with the centralized rate limiting service (`app_counter`):
+
+- **Whisper Rate Limit**: 15 requests per minute (configurable)
+- **Automatic Waiting**: Service waits when rate limits are exceeded
+- **Status Monitoring**: Real-time monitoring of rate limit status
+- **Fair Usage**: Prevents API abuse and ensures stable operation
+
+## Pipeline Architecture
+
+### Processing Steps
+
+1. **Audio Download**: Download from Azure Blob Storage
+2. **Format Verification**: Verify stereo format and duration
+3. **Preprocessing**: Channel separation, resampling, silence trimming
+4. **Chunking**: Intelligent chunking for large files (>24MB)
+5. **Transcription**: Parallel Whisper API calls with rate limiting
+6. **Diarization**: Speaker identification and alignment
+7. **Post-processing**: Final transcript assembly
+8. **Cleanup**: Resource cleanup and memory management
+
+### Retry Logic Flow
+
+```
+Pipeline Request
+    ↓
+Rate Limit Check (Counter App)
+    ↓
+[If Denied] → Wait for Reset → Retry (up to 3 times)
+    ↓
+[If Allowed] → Process Audio
+    ↓
+[If Timeout] → Cancel Task → Retry Pipeline (up to 3 times)
+    ↓
+[If Success] → Return Result
+```
+
+## Error Handling
+
+### Rate Limit Errors
+
+- **Detection**: Automatic detection of rate limit errors from counter app
+- **Waiting**: Waits for the exact reset time plus buffer
+- **Retries**: Up to 3 retries with proper waiting
+- **Logging**: Detailed logging of rate limit status and wait times
+
+### Timeout Errors
+
+- **HTTP Timeouts**: Configurable timeout with retry logic
+- **Operation Timeouts**: 20-minute limit for transcription operations
+- **Task Cancellation**: Proper cancellation of long-running tasks
+- **Resource Cleanup**: Ensures no resource leaks
+
+### Transcription Failures
+
+- **Individual Chunk Failures**: Failed chunks don't stop the pipeline
+- **Fallback Results**: Empty transcription for failed chunks
+- **Success Rate Tracking**: Requires 80% success rate for overall success
+- **Error Aggregation**: Collects and reports all errors
+
+## Monitoring and Debugging
+
+### Log Levels
+
+- **INFO**: Pipeline progress and major steps
+- **DEBUG**: Detailed retry logic and rate limiting information
+- **WARNING**: Non-fatal errors and cleanup issues
+- **ERROR**: Fatal errors and failures
+
+### Key Metrics
+
+- **Processing Time**: Total time including retries and waits
+- **Success Rate**: Percentage of successful chunks
+- **Rate Limit Hits**: Number of rate limit encounters
+- **Timeout Occurrences**: Number of timeout events
+- **Retry Attempts**: Number of retry attempts per operation
+
+## Best Practices
+
+### For Administrators
+
+1. **Monitor Rate Limits**: Keep track of Whisper API usage
+2. **Adjust Timeouts**: Configure timeouts based on expected file sizes
+3. **Scale Resources**: Add more instances for higher throughput
+4. **Monitor Logs**: Watch for patterns in rate limiting and timeouts
+
+### For Developers
+
+1. **Use Retry Logic**: All Whisper API calls include automatic retries
+2. **Handle Long Operations**: Expect operations to take up to 20 minutes
+3. **Check Success Rates**: Monitor chunk success rates for quality
+4. **Implement Monitoring**: Add custom metrics for your use case
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Rate Limit Exceeded**
+   - **Symptom**: "Whisper rate limit would be exceeded" errors
+   - **Solution**: Service automatically waits and retries
+   - **Prevention**: Increase rate limits in counter app if needed
+
+2. **Operation Timeout**
+   - **Symptom**: "Whisper transcription timed out" errors
+   - **Solution**: Service automatically retries
+   - **Prevention**: Increase timeout limits or reduce file sizes
+
+3. **High Failure Rate**
+   - **Symptom**: Success rate below 80%
+   - **Solution**: Check audio quality and format
+   - **Prevention**: Validate audio files before processing
+
+### Debug Commands
+
+```bash
+# Check rate limit status
+curl http://counter-app:8000/whisper/status
+
+# Check processing logs
+tail -f logs/whisper_app.log | grep "RETRY\|RATE\|TIMEOUT"
+
+# Monitor resource usage
+docker stats whisper-app
+```
+
+## Integration Example
+
+```python
+from app_whisper.services.businesslogic.pipeline import process_audio
+
+# Process audio with automatic retries and rate limiting
+success, result = await process_audio("audio_file.wav")
+
+if success:
+    print(f"Transcription: {result.text}")
+    print(f"Processing time: {result.processing_metadata.processing_time_seconds}s")
+    print(f"Speakers detected: {result.processing_metadata.diarization_summary['num_speakers']}")
+else:
+    print(f"Processing failed: {result.text}")
+```
+
+## Performance Characteristics
+
+- **Typical Processing Time**: 2-5 minutes for 10-minute audio files
+- **Maximum File Size**: 25MB per chunk (automatic chunking for larger files)
+- **Concurrent Limit**: 3 concurrent Whisper API calls per instance
+- **Rate Limit**: 15 Whisper API calls per minute (shared across instances)
+- **Timeout Limits**: 20 minutes for transcription, 30 minutes for HTTP requests
+
+The service is designed to handle production workloads with high reliability and automatic recovery from common failure scenarios.

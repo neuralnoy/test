@@ -380,7 +380,7 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
             
         return self._audio_client
     
-    async def transcribe_audio(
+    async def _transcribe_audio_internal(
         self,
         audio_file_path: str,
         language: Optional[str] = None,
@@ -391,7 +391,7 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Transcribe audio file using Azure OpenAI Whisper.
+        Internal transcription method that locks Whisper rate slot and handles the actual API call.
         
         Args:
             audio_file_path: Path to the audio file to transcribe
@@ -406,23 +406,14 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
             Dict containing transcription results
             
         Raises:
-            FileNotFoundError: If audio file doesn't exist
-            ValueError: If file format is not supported
-            Exception: For other API errors
+            ValueError: If rate limit is exceeded or file is invalid
         """
-        if not os.path.exists(audio_file_path):
-            raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
-        
-        # Validate audio file before processing
-        if not self.validate_audio_file(audio_file_path):
-            raise ValueError(f"Invalid audio file: {audio_file_path}")
-        
         # Lock Whisper rate slot
         allowed, request_id, error_message = await self.token_client.lock_whisper_rate()
         
         if not allowed:
             logger.warning(f"Whisper transcription request denied: {error_message}")
-            raise ValueError(error_message)
+            raise ValueError(f"Whisper rate limit would be exceeded: {error_message}")
         
         try:
             logger.info(f"Starting audio transcription for file: {audio_file_path}, request_id: {request_id}")
@@ -474,7 +465,65 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
             await self.token_client.release_whisper_rate(request_id)
             logger.error(f"Error in audio transcription: {str(e)}")
             raise
-    
+
+    async def transcribe_audio(
+        self,
+        audio_file_path: str,
+        language: Optional[str] = None,
+        prompt: Optional[str] = None,
+        response_format: str = "json",
+        temperature: float = 0.0,
+        timestamp_granularities: Optional[List[str]] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Transcribe audio file using Azure OpenAI Whisper with retry logic for rate limits.
+        
+        Args:
+            audio_file_path: Path to the audio file to transcribe
+            language: Language of the audio (ISO-639-1 format, e.g., 'en', 'es')
+            prompt: Optional text to guide the model's style or continue a previous audio segment
+            response_format: Format of the response ('json', 'text', 'srt', 'verbose_json', 'vtt')
+            temperature: Sampling temperature (0 to 1)
+            timestamp_granularities: List of timestamp granularities ('word', 'segment')
+            **kwargs: Additional parameters for the transcription
+            
+        Returns:
+            Dict containing transcription results
+            
+        Raises:
+            FileNotFoundError: If audio file doesn't exist
+            ValueError: If file format is not supported
+            Exception: For other API errors
+        """
+        if not os.path.exists(audio_file_path):
+            raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
+        
+        # Validate audio file before processing
+        if not self.validate_audio_file(audio_file_path):
+            raise ValueError(f"Invalid audio file: {audio_file_path}")
+        
+        # Use retry helper that respects Whisper rate limits and waits appropriately
+        async def _do_transcription():
+            return await self._transcribe_audio_internal(
+                audio_file_path=audio_file_path,
+                language=language,
+                prompt=prompt,
+                response_format=response_format,
+                temperature=temperature,
+                timestamp_granularities=timestamp_granularities,
+                **kwargs
+            )
+        
+        # Create a whisper-specific token client wrapper for retry logic
+        whisper_token_client = WhisperTokenClientWrapper(self.token_client)
+        
+        return await with_token_limit_retry(
+            _do_transcription, 
+            whisper_token_client, 
+            max_retries=3
+        )
+
     async def transcribe_audio_with_retry(
         self,
         audio_file_path: str,
@@ -484,33 +533,19 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
     ) -> Dict[str, Any]:
         """
         Transcribe audio with retry logic for handling transient failures.
+        This method is maintained for backward compatibility.
         
         Args:
             audio_file_path: Path to the audio file to transcribe
-            max_retries: Maximum number of retry attempts
-            retry_delay: Base delay between retries in seconds (uses exponential backoff)
+            max_retries: Maximum number of retry attempts (ignored, uses token limit retry)
+            retry_delay: Base delay between retries (ignored, uses token limit retry)
             **kwargs: Additional parameters passed to transcribe_audio
             
         Returns:
             Dict containing transcription results
         """
-        last_exception = None
-        
-        for attempt in range(max_retries + 1):
-            try:
-                return await self.transcribe_audio(audio_file_path, **kwargs)
-            except Exception as e:
-                last_exception = e
-                
-                if attempt < max_retries:
-                    wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
-                    logger.warning(f"Transcription attempt {attempt + 1} failed: {str(e)}. Retrying in {wait_time} seconds")
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.error(f"All {max_retries + 1} transcription attempts failed")
-        
-        # If we get here, all retries failed
-        raise last_exception
+        # Use the main transcribe_audio method which now has proper retry logic
+        return await self.transcribe_audio(audio_file_path, **kwargs)
     
     async def transcribe_audio_chunks(
         self,
@@ -518,7 +553,7 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
-        Transcribe multiple audio chunks concurrently.
+        Transcribe multiple audio chunks concurrently with proper rate limiting.
         
         Args:
             audio_file_paths: List of paths to audio files to transcribe
@@ -531,10 +566,10 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
         
         logger.info(f"Starting concurrent transcription of {len(audio_file_paths)} audio chunks")
         
-        # Create transcription tasks
+        # Create transcription tasks - the transcribe_audio method now handles rate limiting
         tasks = []
         for audio_path in audio_file_paths:
-            task = self.transcribe_audio_with_retry(audio_path, **kwargs)
+            task = self.transcribe_audio(audio_path, **kwargs)
             tasks.append(task)
         
         try:
@@ -560,7 +595,7 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
         except Exception as e:
             logger.error(f"Error in concurrent audio transcription: {str(e)}")
             raise
-    
+
     def validate_audio_file(self, audio_file_path: str) -> bool:
         """
         Validate audio file format and size.
@@ -593,4 +628,18 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
         
         logger.debug(f"Audio file validation passed: {audio_file_path}")
         return True
+    
+
+class WhisperTokenClientWrapper:
+    """
+    Wrapper for token client to provide Whisper-specific status checking for retry logic.
+    """
+    def __init__(self, token_client: TokenClient):
+        self.token_client = token_client
+    
+    async def get_status(self) -> Optional[Dict[str, Any]]:
+        """
+        Get Whisper rate counter status for retry logic.
+        """
+        return await self.token_client.get_whisper_status()
     

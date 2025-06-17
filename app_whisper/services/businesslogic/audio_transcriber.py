@@ -79,7 +79,7 @@ class WhisperTranscriber:
     
     async def _transcribe_single_chunk_with_rate_limit(self, chunk: AudioChunk) -> Dict[str, Any]:
         """
-        Transcribe a single chunk with rate limiting.
+        Transcribe a single chunk with rate limiting handled by the Whisper service.
         
         Args:
             chunk: AudioChunk to transcribe
@@ -89,13 +89,10 @@ class WhisperTranscriber:
         """
         async with self.semaphore:
             try:
-                # Add delay to prevent API rate limiting
-                if self.request_delay > 0:
-                    await asyncio.sleep(self.request_delay)
-                
                 logger.info(f"Transcribing chunk: {chunk.chunk_id} ({chunk.start_time:.2f}s-{chunk.end_time:.2f}s)")
                 
                 # Call Whisper API with verbose JSON and timestamp granularities
+                # Rate limiting is now handled by the Whisper service with proper retry logic
                 result = await self.whisper_service.transcribe_audio(
                     audio_file_path=chunk.file_path,
                     response_format="verbose_json",

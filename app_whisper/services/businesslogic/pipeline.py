@@ -12,12 +12,14 @@ from app_whisper.services.businesslogic.audio_chunker import AudioChunker
 from app_whisper.services.businesslogic.audio_transcriber import WhisperTranscriber
 from app_whisper.services.businesslogic.audio_postprocessor import TranscriptionPostProcessor
 from common_new.logger import get_logger
+from common_new.retry_helpers import with_token_limit_retry
+from common_new.token_client import TokenClient
 
 logger = get_logger("businesslogic")
 
 async def process_audio(filename: str) -> Tuple[bool, InternalWhisperResult]:
     """
-    Main entry point for audio processing pipeline.
+    Main entry point for audio processing pipeline with retry logic.
     This function is called by data_processor.py
     
     Args:
@@ -26,7 +28,33 @@ async def process_audio(filename: str) -> Tuple[bool, InternalWhisperResult]:
     Returns:
         Tuple[bool, InternalWhisperResult]: (success, result)
     """
-    return await run_pipeline(filename)
+    # Create a token client for pipeline-level retry logic
+    token_client = TokenClient(app_id="whisper_app")
+    
+    # Wrapper function for retry logic
+    async def _do_pipeline_processing():
+        return await run_pipeline(filename)
+    
+    try:
+        # Use retry logic for the entire pipeline to handle rate limits and transient failures
+        return await with_token_limit_retry(
+            _do_pipeline_processing,
+            token_client,
+            max_retries=3
+        )
+    except Exception as e:
+        # If retry logic fails, still return a proper result
+        logger.error(f"Pipeline processing failed after retries for {filename}: {str(e)}")
+        return False, InternalWhisperResult(
+            text=f"Pipeline failed after retries: {str(e)}",
+            diarization=False,
+            processing_metadata=ProcessingMetadata(
+                filename=filename,
+                processing_time_seconds=0,
+                transcription_method="failed_with_retries",
+                chunk_method="none"
+            )
+        )
 
 async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
     """
@@ -162,7 +190,32 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         logger.info("=" * 60)
         transcriber = WhisperTranscriber()
         
-        transcription_success, whisper_results, transcription_error = await transcriber.transcribe_channel_chunks(audio_chunks)
+        # Add timeout handling for long transcription operations
+        import asyncio
+        try:
+            # Set a reasonable timeout for transcription (20 minutes)
+            transcription_task = asyncio.create_task(
+                transcriber.transcribe_channel_chunks(audio_chunks)
+            )
+            transcription_success, whisper_results, transcription_error = await asyncio.wait_for(
+                transcription_task, 
+                timeout=1200  # 20 minutes timeout
+            )
+        except asyncio.TimeoutError:
+            logger.error("Whisper transcription timed out after 20 minutes")
+            transcription_task.cancel()  # Cancel the task to free resources
+            return False, InternalWhisperResult(
+                text="Whisper transcription timed out after 20 minutes",
+                diarization=False,
+                processing_metadata=ProcessingMetadata(
+                    filename=filename,
+                    processing_time_seconds=time.time() - start_time,
+                    transcription_method="timeout",
+                    chunk_method="chunked" if len(audio_chunks) > 2 else "direct",
+                    total_chunks=len(audio_chunks),
+                    original_audio_info=original_audio_info
+                )
+            )
         
         if not transcription_success:
             logger.error(f"Whisper transcription failed: {transcription_error}")
@@ -298,16 +351,56 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         logger.info("=" * 60)
         logger.info("STEP 7: Cleaning up temporary files")
         logger.info("=" * 60)
+        
+        cleanup_errors = []
+        
         try:
             if downloader:
+                logger.debug("Cleaning up downloader resources")
                 downloader.cleanup()
+        except Exception as cleanup_error:
+            cleanup_errors.append(f"Downloader cleanup: {cleanup_error}")
+            logger.error(f"Error during downloader cleanup: {cleanup_error}")
+            
+        try:
             if preprocessor:
+                logger.debug("Cleaning up preprocessor resources")
                 preprocessor.cleanup()
+        except Exception as cleanup_error:
+            cleanup_errors.append(f"Preprocessor cleanup: {cleanup_error}")
+            logger.error(f"Error during preprocessor cleanup: {cleanup_error}")
+            
+        try:
             if chunker:
+                logger.debug("Cleaning up chunker resources")
                 chunker.cleanup()
+        except Exception as cleanup_error:
+            cleanup_errors.append(f"Chunker cleanup: {cleanup_error}")
+            logger.error(f"Error during chunker cleanup: {cleanup_error}")
+            
+        try:
             if transcriber:
+                logger.debug("Cleaning up transcriber resources")
                 transcriber.cleanup()
+        except Exception as cleanup_error:
+            cleanup_errors.append(f"Transcriber cleanup: {cleanup_error}")
+            logger.error(f"Error during transcriber cleanup: {cleanup_error}")
+            
+        try:
             if postprocessor:
+                logger.debug("Cleaning up postprocessor resources")
                 postprocessor.cleanup()
         except Exception as cleanup_error:
-            logger.error(f"Error during cleanup: {cleanup_error}")
+            cleanup_errors.append(f"Postprocessor cleanup: {cleanup_error}")
+            logger.error(f"Error during postprocessor cleanup: {cleanup_error}")
+            
+        # Log summary of cleanup
+        if cleanup_errors:
+            logger.warning(f"Cleanup completed with {len(cleanup_errors)} errors: {'; '.join(cleanup_errors)}")
+        else:
+            logger.info("Cleanup completed successfully")
+            
+        # Force garbage collection for long-running operations
+        import gc
+        gc.collect()
+        logger.debug("Forced garbage collection after cleanup")
