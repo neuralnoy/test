@@ -85,6 +85,30 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         if not is_stereo:
             logger.warning(f"Audio file is not stereo format, but continuing with processing")
         
+        # Step 1c: Check audio duration (skip files shorter than 5 seconds)
+        logger.info("=" * 60)
+        logger.info("STEP 1c: Checking audio duration")
+        logger.info("=" * 60)
+        audio_duration = original_audio_info.get('duration', 0.0)
+        min_duration = 5.0  # Minimum 5 seconds
+        
+        if audio_duration < min_duration:
+            error_msg = f"Audio file too short for processing: {audio_duration:.2f}s (minimum: {min_duration}s)"
+            logger.warning(error_msg)
+            return False, InternalWhisperResult(
+                text=f"Audio file rejected: {error_msg}",
+                diarization=False,
+                processing_metadata=ProcessingMetadata(
+                    filename=filename,
+                    processing_time_seconds=time.time() - start_time,
+                    transcription_method="rejected_duration",
+                    chunk_method="none",
+                    original_audio_info=original_audio_info
+                )
+            )
+        
+        logger.info(f"Audio duration check passed: {audio_duration:.2f}s")
+        
         # Step 2: Preprocess Audio
         logger.info("=" * 60)
         logger.info("STEP 2: Preprocessing audio (split channels, resample, trim, convert)")
