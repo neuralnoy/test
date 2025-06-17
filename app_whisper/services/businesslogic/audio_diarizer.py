@@ -275,15 +275,23 @@ class SpeakerDiarizer:
                     # Determine dominant speaker for this overlap
                     dominant_speaker_id = self._determine_dominant_speaker(overlapping_segments, overlap)
                     
-                    # Mark non-dominant segments for removal if they are entirely within the overlap
+                    # Mark non-dominant segments for removal if significant overlap (>50% of segment duration)
                     for seg_idx, segment in overlapping_segments:
                         if segment.speaker_id != dominant_speaker_id:
-                            # Check if segment is entirely within the overlap period
-                            if (segment.start_time >= overlap_start and segment.end_time <= overlap_end):
+                            # Calculate how much of this segment overlaps with the overlap period
+                            seg_overlap_start = max(segment.start_time, overlap_start)
+                            seg_overlap_end = min(segment.end_time, overlap_end)
+                            seg_overlap_duration = seg_overlap_end - seg_overlap_start
+                            segment_total_duration = segment.end_time - segment.start_time
+                            
+                            # Remove if >50% of segment is within overlap OR if segment is entirely within overlap
+                            overlap_percentage = seg_overlap_duration / segment_total_duration if segment_total_duration > 0 else 0
+                            
+                            if overlap_percentage > 0.5 or (segment.start_time >= overlap_start and segment.end_time <= overlap_end):
                                 segments_to_remove.add(seg_idx)
                                 logger.debug(f"Marking segment {seg_idx} for removal: {segment.speaker_id} "
                                            f"({segment.start_time:.2f}s-{segment.end_time:.2f}s) "
-                                           f"during overlap {overlap_start:.2f}s-{overlap_end:.2f}s")
+                                           f"overlap: {overlap_percentage:.1%} during {overlap_start:.2f}s-{overlap_end:.2f}s")
             
             # Create cleaned segments list by excluding marked segments
             cleaned_segments = []
