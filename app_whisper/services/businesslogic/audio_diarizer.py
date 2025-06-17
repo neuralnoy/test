@@ -2,7 +2,7 @@
 Speaker Diarizer for channel-based speaker identification.
 Converts Whisper transcription results into speaker-labeled segments.
 """
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, Optional
 from app_whisper.models.schemas import AudioChunk, SpeakerSegment, WhisperTranscriptionResult
 from common_new.logger import get_logger
 
@@ -78,9 +78,13 @@ class SpeakerDiarizer:
             logger.info("Step 5c: Detecting overlapping speech periods")
             overlap_info = self._detect_overlapping_speech(sorted_segments)
             
+            # Step 5c.1: Clean up overlapping speech segments (NEW)
+            logger.info("Step 5c.1: Cleaning up overlapping speech segments")
+            cleaned_segments = self._cleanup_overlapping_speech(sorted_segments, overlap_info)
+            
             # Step 5d: Merge consecutive segments from same speaker
             logger.info("Step 5d: Merging consecutive segments from same speaker")
-            merged_segments = self._merge_consecutive_segments(sorted_segments)
+            merged_segments = self._merge_consecutive_segments(cleaned_segments)
             
             # Final cleanup and validation
             final_segments = self._cleanup_segments(merged_segments)
@@ -204,7 +208,9 @@ class SpeakerDiarizer:
                                 'end_time': overlap_end,
                                 'duration': overlap_duration,
                                 'speaker_1': current_segment.speaker_id,
-                                'speaker_2': next_segment.speaker_id
+                                'speaker_2': next_segment.speaker_id,
+                                'segment_1_index': i,
+                                'segment_2_index': j
                             }
                             overlaps.append(overlap_info)
                             total_overlap_duration += overlap_duration
@@ -223,6 +229,187 @@ class SpeakerDiarizer:
         except Exception as e:
             logger.error(f"Error detecting overlapping speech: {str(e)}")
             return {'overlap_count': 0, 'total_overlap_duration': 0.0, 'overlaps': []}
+    
+    def _cleanup_overlapping_speech(self, 
+                                   sorted_segments: List[SpeakerSegment], 
+                                   overlap_info: Dict[str, Any]) -> List[SpeakerSegment]:
+        """
+        Clean up overlapping speech by removing non-dominant speakers during overlap periods.
+        Uses text density (50%) and duration coverage (50%) to determine dominance.
+        
+        Args:
+            sorted_segments: List of SpeakerSegments sorted by start_time
+            overlap_info: Dictionary containing overlap detection results
+            
+        Returns:
+            List of cleaned SpeakerSegments with overlaps resolved
+        """
+        if not overlap_info.get('overlaps'):
+            logger.info("No overlaps detected, returning original segments")
+            return sorted_segments
+        
+        overlaps = overlap_info['overlaps']
+        logger.info(f"Processing {len(overlaps)} overlapping speech periods for cleanup")
+        
+        # Create a set to track segments that should be removed
+        segments_to_remove = set()
+        
+        try:
+            # Process each overlap
+            for overlap in overlaps:
+                overlap_start = overlap['start_time']
+                overlap_end = overlap['end_time']
+                overlap_duration = overlap['duration']
+                speaker_1 = overlap['speaker_1']
+                speaker_2 = overlap['speaker_2']
+                
+                # Find all segments that overlap in this period
+                overlapping_segments = []
+                for i, segment in enumerate(sorted_segments):
+                    # Check if segment overlaps with this overlap period
+                    if (segment.start_time < overlap_end and segment.end_time > overlap_start and
+                        segment.speaker_id in [speaker_1, speaker_2]):
+                        overlapping_segments.append((i, segment))
+                
+                if len(overlapping_segments) >= 2:
+                    # Determine dominant speaker for this overlap
+                    dominant_speaker_id = self._determine_dominant_speaker(overlapping_segments, overlap)
+                    
+                    # Mark non-dominant segments for removal if they are entirely within the overlap
+                    for seg_idx, segment in overlapping_segments:
+                        if segment.speaker_id != dominant_speaker_id:
+                            # Check if segment is entirely within the overlap period
+                            if (segment.start_time >= overlap_start and segment.end_time <= overlap_end):
+                                segments_to_remove.add(seg_idx)
+                                logger.debug(f"Marking segment {seg_idx} for removal: {segment.speaker_id} "
+                                           f"({segment.start_time:.2f}s-{segment.end_time:.2f}s) "
+                                           f"during overlap {overlap_start:.2f}s-{overlap_end:.2f}s")
+            
+            # Create cleaned segments list by excluding marked segments
+            cleaned_segments = []
+            removed_count = 0
+            
+            for i, segment in enumerate(sorted_segments):
+                if i not in segments_to_remove:
+                    cleaned_segments.append(segment)
+                else:
+                    removed_count += 1
+                    logger.debug(f"Removed overlapping segment: {segment.speaker_id} "
+                               f"({segment.start_time:.2f}s-{segment.end_time:.2f}s) "
+                               f"text: '{segment.text[:50]}...'")
+            
+            logger.info(f"Overlap cleanup completed: {len(overlaps)} overlaps processed, "
+                       f"{removed_count} segments removed")
+            
+            return cleaned_segments
+            
+        except Exception as e:
+            logger.error(f"Error in overlap cleanup: {str(e)}")
+            return sorted_segments  # Return original segments if cleanup fails
+    
+    def _determine_dominant_speaker(self, 
+                                   overlapping_segments: List[Tuple[int, SpeakerSegment]], 
+                                   overlap: Dict[str, Any]) -> str:
+        """
+        Determine which speaker is dominant during an overlap period.
+        Uses text density (50%) and duration coverage (50%) to calculate dominance.
+        
+        Args:
+            overlapping_segments: List of (index, SpeakerSegment) tuples for overlapping segments
+            overlap: Dictionary with overlap information
+            
+        Returns:
+            Speaker ID of the dominant speaker
+        """
+        overlap_start = overlap['start_time']
+        overlap_end = overlap['end_time']
+        overlap_duration = overlap['duration']
+        
+        speaker_scores = {}
+        
+        try:
+            for _, segment in overlapping_segments:
+                speaker_id = segment.speaker_id
+                
+                # Calculate actual overlap duration for this segment
+                seg_overlap_start = max(segment.start_time, overlap_start)
+                seg_overlap_end = min(segment.end_time, overlap_end)
+                seg_overlap_duration = seg_overlap_end - seg_overlap_start
+                
+                if seg_overlap_duration <= 0:
+                    continue
+                
+                # 1. Duration Coverage Score (50% weight)
+                # How much of the overlap period this speaker covers
+                duration_score = seg_overlap_duration / overlap_duration
+                
+                # 2. Text Density Score (50% weight)
+                # Approximate words spoken during overlap relative to segment length
+                segment_duration = segment.end_time - segment.start_time
+                total_words = len(segment.text.split())
+                
+                if segment_duration > 0 and total_words > 0:
+                    # Estimate words in overlap period
+                    words_in_overlap_ratio = seg_overlap_duration / segment_duration
+                    estimated_words_in_overlap = max(1, int(total_words * words_in_overlap_ratio))
+                    
+                    # Text density: words per second in overlap
+                    text_density = estimated_words_in_overlap / seg_overlap_duration
+                    
+                    # Normalize text density score (assume max reasonable density is 3 words/second)
+                    text_score = min(1.0, text_density / 3.0)
+                else:
+                    text_score = 0.1  # Low score for segments with no meaningful text
+                
+                # Combined dominance score (equal weights)
+                dominance_score = (duration_score * 0.5) + (text_score * 0.5)
+                
+                # Track best score for each speaker
+                if speaker_id not in speaker_scores:
+                    speaker_scores[speaker_id] = []
+                speaker_scores[speaker_id].append({
+                    'score': dominance_score,
+                    'duration_score': duration_score,
+                    'text_score': text_score,
+                    'words_in_overlap': estimated_words_in_overlap if segment_duration > 0 else 0,
+                    'overlap_duration': seg_overlap_duration
+                })
+                
+                logger.debug(f"Speaker {speaker_id} segment dominance: "
+                           f"total={dominance_score:.3f} "
+                           f"(duration={duration_score:.3f}, text={text_score:.3f}) "
+                           f"words_est={estimated_words_in_overlap if segment_duration > 0 else 0}")
+            
+            # Select speaker with highest average score
+            best_speaker = None
+            best_avg_score = -1
+            
+            for speaker_id, score_list in speaker_scores.items():
+                if not score_list:
+                    continue
+                    
+                # Calculate average score for this speaker across all their segments in this overlap
+                avg_score = sum(s['score'] for s in score_list) / len(score_list)
+                total_duration = sum(s['overlap_duration'] for s in score_list)
+                total_words = sum(s['words_in_overlap'] for s in score_list)
+                
+                logger.debug(f"Speaker {speaker_id} overlap summary: "
+                           f"avg_score={avg_score:.3f}, "
+                           f"total_duration={total_duration:.2f}s, "
+                           f"total_words_est={total_words}")
+                
+                if avg_score > best_avg_score:
+                    best_avg_score = avg_score
+                    best_speaker = speaker_id
+            
+            logger.info(f"Dominant speaker for overlap {overlap_start:.2f}s-{overlap_end:.2f}s: "
+                       f"{best_speaker} (avg_score: {best_avg_score:.3f})")
+            
+            return best_speaker or overlap['speaker_1']  # Fallback to first speaker
+            
+        except Exception as e:
+            logger.error(f"Error determining dominant speaker: {str(e)}")
+            return overlap['speaker_1']  # Fallback to first speaker
     
     def _merge_consecutive_segments(self, sorted_segments: List[SpeakerSegment]) -> List[SpeakerSegment]:
         """
