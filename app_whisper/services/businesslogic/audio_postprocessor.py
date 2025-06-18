@@ -117,6 +117,9 @@ class TranscriptionPostProcessor:
             current_text_parts = []
             
             for segment in sorted_segments:
+                # Clean up the text in the segment itself before consolidation
+                segment.text = self._filter_hallucinations(segment.text)
+
                 # Check if speaker changed
                 if segment.speaker_id != current_speaker:
                     # If we have accumulated text from previous speaker, add it
@@ -146,6 +149,62 @@ class TranscriptionPostProcessor:
         except Exception as e:
             logger.error(f"Error creating consolidated transcript: {str(e)}")
             return "Error creating transcript"
+    
+    def _filter_hallucinations(self, text: str) -> str:
+        """
+        Filters Whisper hallucinations where a word is repeated many times.
+        e.g. "yes, yes, yes, yes, yes" becomes "yes, yes, yes..."
+        
+        Args:
+            text: The input text.
+        
+        Returns:
+            Cleaned text.
+        """
+        import re
+        # This regex splits the text into words and the delimiters (spaces, punctuation) that follow them.
+        tokens = re.findall(r'(\w+)(\W*)', text)
+        if not tokens:
+            return text
+        
+        # Handle trailing text not captured by regex
+        end_of_tokens_str = "".join([w+d for w,d in tokens])
+        trailing_text = text[len(end_of_tokens_str):]
+
+        processed_tokens = []
+        i = 0
+        while i < len(tokens):
+            current_word, _ = tokens[i]
+            
+            # Look ahead for repetitions of the current word
+            count = 1
+            j = i + 1
+            while j < len(tokens) and tokens[j][0].lower() == current_word.lower():
+                count += 1
+                j += 1
+            
+            if count > 3:  # More than 3 repetitions
+                # Keep the first 3 occurrences
+                processed_tokens.extend(tokens[i:i+3])
+                
+                # Get the last of the three to append "..."
+                last_word, last_delim = processed_tokens.pop()
+                
+                # Append "..." smartly to the delimiter
+                if last_delim.endswith(' '):
+                    new_delim = last_delim.rstrip(' ') + '... '
+                else:
+                    new_delim = last_delim + '...'
+                processed_tokens.append((last_word, new_delim))
+                
+                # Move index past the entire repeated sequence
+                i = j
+            else:
+                # No hallucination, just add the token and move on
+                processed_tokens.append(tokens[i])
+                i += 1
+                
+        return "".join([word + delim for word, delim in processed_tokens]) + trailing_text
     
     def _generate_conversation_flow(self, speaker_segments: List[SpeakerSegment]) -> List[Dict[str, Any]]:
         """

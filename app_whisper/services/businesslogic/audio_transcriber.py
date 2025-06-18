@@ -248,6 +248,8 @@ class WhisperTranscriber:
                                            results_list: List[Dict[str, Any]]) -> WhisperTranscriptionResult:
         """
         Create a consolidated WhisperTranscriptionResult for a speaker.
+        This function focuses on consolidating SEGMENTS with adjusted timestamps,
+        not on creating a combined text string, which can be misleading.
         
         Args:
             speaker_id: Speaker identifier
@@ -256,18 +258,15 @@ class WhisperTranscriber:
         Returns:
             WhisperTranscriptionResult object
         """
-        # Combine all text from successful chunks
-        all_text_parts = []
         all_segments = []
         total_confidence = 0.0
         confidence_count = 0
+        detected_language = None
         
         for result in results_list:
-            if result.get('success', False) and result.get('text'):
-                all_text_parts.append(result['text'].strip())
-                
+            if result.get('success', False):
                 # Adjust segment timestamps with chunk offsets
-                if 'segments' in result:
+                if 'segments' in result and result['segments']:
                     offset = result['start_time_offset']
                     for segment in result['segments']:
                         adjusted_segment = segment.copy()
@@ -279,31 +278,28 @@ class WhisperTranscriber:
                         all_segments.append(adjusted_segment)
                 
                 # Track confidence if available
-                if 'confidence' in result:
+                if 'confidence' in result and result['confidence'] is not None:
                     total_confidence += result['confidence']
                     confidence_count += 1
-        
-        # Combine text with proper spacing
-        combined_text = " ".join(all_text_parts)
+                
+                # Detect language from first successful result
+                if detected_language is None and 'language' in result:
+                    detected_language = result['language']
         
         # Calculate average confidence
         avg_confidence = total_confidence / confidence_count if confidence_count > 0 else 0.0
         
-        # Detect language from first successful result
-        detected_language = None
-        for result in results_list:
-            if result.get('success', False) and 'language' in result:
-                detected_language = result['language']
-                break
-        
+        # NOTE: We intentionally leave 'text' as an empty string.
+        # The true source of data is the timestamped 'segments'.
+        # Concatenating text at this stage is error-prone.
         transcription_result = WhisperTranscriptionResult(
-            text=combined_text,
+            text="",
             segments=all_segments,
             language=detected_language,
             confidence=avg_confidence
         )
         
-        logger.info(f"Created transcription result for {speaker_id}: {len(combined_text)} characters, {len(all_segments)} segments")
+        logger.info(f"Created transcription result for {speaker_id}: {len(all_segments)} segments")
         
         return transcription_result
     
