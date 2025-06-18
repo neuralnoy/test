@@ -267,7 +267,7 @@ class WhisperTranscriber:
                 all_text_parts.append(result['text'].strip())
                 
                 # Adjust segment timestamps with chunk offsets
-                if result.get('segments'):
+                if 'segments' in result:
                     offset = result['start_time_offset']
                     for segment in result['segments']:
                         adjusted_segment = segment.copy()
@@ -277,16 +277,6 @@ class WhisperTranscriber:
                             adjusted_segment['end'] += offset
                         adjusted_segment['speaker_id'] = speaker_id
                         all_segments.append(adjusted_segment)
-                elif result.get('text'):
-                    # If no segments, create a fallback segment for the entire chunk
-                    logger.warning(f"No segments found for chunk {result['chunk_id']}. Creating a fallback segment.")
-                    fallback_segment = {
-                        'start': result['start_time_offset'],
-                        'end': result['end_time_offset'],
-                        'text': result['text'].strip(),
-                        'speaker_id': speaker_id
-                    }
-                    all_segments.append(fallback_segment)
                 
                 # Track confidence if available
                 if 'confidence' in result:

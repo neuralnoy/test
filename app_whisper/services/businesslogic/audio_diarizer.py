@@ -118,8 +118,19 @@ class SpeakerDiarizer:
             segments = transcription_result.segments
             
             if not segments:
-                logger.warning(f"No segments found for {speaker_id}, transcription may be empty.")
-                return []
+                # If no segments, create one segment from the full text
+                if transcription_result.text.strip():
+                    segment = SpeakerSegment(
+                        start_time=0.0,
+                        end_time=10.0,  # Default duration if no timing info
+                        speaker_id=speaker_id,
+                        text=transcription_result.text.strip(),
+                        confidence=transcription_result.confidence
+                    )
+                    speaker_segments.append(segment)
+                    logger.info(f"Created fallback segment for {speaker_id} from full text")
+                
+                return speaker_segments
             
             # Process each Whisper segment
             for i, whisper_segment in enumerate(segments):

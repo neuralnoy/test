@@ -4,7 +4,7 @@ Handles size-based chunking while maintaining timestamp alignment between channe
 """
 import os
 import tempfile
-from pydub import AudioSegment
+import soundfile as sf
 from typing import Tuple, List, Dict, Any
 from app_whisper.models.schemas import ChannelInfo, AudioChunk
 from common_new.logger import get_logger
@@ -156,8 +156,8 @@ class AudioChunker:
             Tuple[bool, List[AudioChunk], str]: (success, chunk_list, error_message)
         """
         try:
-            # Load the audio file using pydub
-            audio = AudioSegment.from_file(channel_info.file_path)
+            # Load the audio file
+            audio_data, sample_rate = sf.read(channel_info.file_path)
             
             chunks = []
             
@@ -170,19 +170,19 @@ class AudioChunker:
                     logger.warning(f"Skipping chunk {chunk_idx} for {channel_info.speaker_id} (too short: {end_time - start_time:.2f}s)")
                     continue
                 
-                # Calculate time in milliseconds for pydub
-                start_ms = start_time * 1000
-                end_ms = end_time * 1000
+                # Calculate sample indices
+                start_sample = int(start_time * sample_rate)
+                end_sample = int(end_time * sample_rate)
                 
                 # Extract chunk audio data
-                chunk_audio = audio[start_ms:end_ms]
+                chunk_audio = audio_data[start_sample:end_sample]
                 
                 # Create chunk file
-                chunk_filename = f"{channel_info.speaker_id}_chunk_{chunk_idx}.mp3"
+                chunk_filename = f"{channel_info.speaker_id}_chunk_{chunk_idx}.wav"
                 chunk_path = os.path.join(self.temp_dir, chunk_filename)
                 
-                # Save chunk as MP3
-                chunk_audio.export(chunk_path, format="mp3")
+                # Save chunk as WAV
+                sf.write(chunk_path, chunk_audio, sample_rate, format='WAV', subtype='PCM_16')
                 
                 # Calculate chunk file size
                 chunk_size_bytes = os.path.getsize(chunk_path)

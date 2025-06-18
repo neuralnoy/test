@@ -21,12 +21,12 @@ class AudioFileDownloader:
             container_name: Azure blob container name (if None, will use env var)
         """
         # Azure Storage configuration
-        account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL", "https://your-account.blob.core.windows.net")
-        self.container_name = container_name or os.getenv("AZURE_AUDIO_CONTAINER_NAME", "audio-files")
+        self.account_url = os.getenv("APP_BLOB_ACCOUNT_NAME")
+        self.container_name = os.getenv("WHISPER_AUDIO_CONTAINER", "fla-data-container")
         
         # Initialize blob downloader
         self.blob_service = AsyncBlobStorageDownloader(
-            account_url=account_url,
+            account_url=f"https://{self.account_url}.blob.core.windows.net",
             container_name=self.container_name
         )
         
@@ -103,7 +103,7 @@ class AudioFileDownloader:
     
     def verify_stereo_format(self, file_path: str) -> Tuple[bool, dict]:
         """
-        Verify that the audio file is in stereo format (2 channels) using pydub.
+        Verify that the audio file is in stereo format (2 channels).
         
         Args:
             file_path: Path to the audio file
@@ -112,25 +112,25 @@ class AudioFileDownloader:
             Tuple[bool, dict]: (is_stereo, audio_info)
         """
         try:
-            from pydub import AudioSegment
+            import soundfile as sf
             
-            # Use pydub to get audio file info, which supports more formats
-            audio = AudioSegment.from_file(file_path)
+            # Get audio file info
+            info = sf.info(file_path)
             
             audio_info = {
-                'channels': audio.channels,
-                'samplerate': audio.frame_rate,
-                'duration': audio.duration_seconds,
-                'format': os.path.splitext(file_path)[1],
-                'subtype': None  # pydub does not provide a subtype
+                'channels': info.channels,
+                'sample_rate': info.samplerate,
+                'duration': info.frames / info.samplerate,
+                'format': info.format,
+                'subtype': info.subtype
             }
             
-            is_stereo = audio.channels == 2
+            is_stereo = info.channels == 2
             
             if is_stereo:
                 logger.info(f"Audio file verified as stereo: {audio_info}")
             else:
-                logger.warning(f"Audio file is not stereo ({audio.channels} channels): {audio_info}")
+                logger.warning(f"Audio file is not stereo ({info.channels} channels): {audio_info}")
             
             return is_stereo, audio_info
             
