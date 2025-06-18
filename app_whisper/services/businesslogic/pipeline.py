@@ -143,209 +143,105 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         logger.info("=" * 60)
         preprocessor = AudioPreprocessor()
         
-        preprocess_success, channel_info_list, preprocess_error = await preprocessor.preprocess_stereo_audio(
-            local_file_path, 
+        success, channel_info_list, error_msg = await preprocessor.preprocess_stereo_audio(
+            local_file_path,
             original_audio_info
         )
-        
-        if not preprocess_success:
-            logger.error(f"Audio preprocessing failed: {preprocess_error}")
+        if not success:
+            logger.error(f"Failed to preprocess audio: {error_msg}")
             return False, InternalWhisperResult(
-                text=f"Audio preprocessing failed: {preprocess_error}",
+                text=f"Failed to preprocess audio: {error_msg}",
                 diarization=False,
                 processing_metadata=ProcessingMetadata(
                     filename=filename,
                     processing_time_seconds=time.time() - start_time,
-                    transcription_method="failed",
+                    transcription_method="failed_preprocessing",
                     chunk_method="none",
                     original_audio_info=original_audio_info
                 )
             )
-        
-        # Step 3: Channel-Specific Audio Chunking
+
+        logger.info("Audio preprocessing successful. Channel info:")
+        for info in channel_info_list:
+            logger.info(f"  - Channel: {info.channel_id} ({info.speaker_id}), Path: {info.file_path}, Size: {info.file_size_mb:.2f}MB")
+
+        # Step 3: Channel-Specific Audio Chunking (if needed)
         logger.info("=" * 60)
-        logger.info("STEP 3: Performing channel-specific audio chunking")
+        logger.info("STEP 3: Creating audio chunks for each channel")
         logger.info("=" * 60)
         chunker = AudioChunker()
         
-        chunking_success, audio_chunks, chunking_error = await chunker.create_channel_chunks(channel_info_list)
-        
-        if not chunking_success:
-            logger.error(f"Audio chunking failed: {chunking_error}")
-            return False, InternalWhisperResult(
-                text=f"Audio chunking failed: {chunking_error}",
-                diarization=False,
-                processing_metadata=ProcessingMetadata(
-                    filename=filename,
-                    processing_time_seconds=time.time() - start_time,
-                    transcription_method="failed",
-                    chunk_method="failed",
-                    original_audio_info=original_audio_info
-                )
-            )
-        
-        # Step 4: Parallel Whisper Transcription
-        logger.info("=" * 60)
-        logger.info("STEP 4: Performing parallel Whisper transcription")
-        logger.info("=" * 60)
-        transcriber = WhisperTranscriber()
-        
-        # Add timeout handling for long transcription operations
-        import asyncio
         try:
-            # Set a reasonable timeout for transcription (20 minutes)
-            transcription_task = asyncio.create_task(
-                transcriber.transcribe_channel_chunks(audio_chunks)
+            all_audio_chunks = chunker.chunk_audio(channel_info_list)
+            
+            logger.info("Audio chunking successful. Generated chunks:")
+            for speaker_id, chunks in all_audio_chunks.items():
+                logger.info(f"  - Speaker: {speaker_id}, Chunks: {len(chunks)}")
+                for i, chunk in enumerate(chunks):
+                    logger.info(f"    - Chunk {i+1}: {chunk.file_path} ({chunk.start_time:.2f}s - {chunk.end_time:.2f}s)")
+
+            # Step 4: Parallel Whisper Transcription for both channels
+            logger.info("=" * 60)
+            logger.info("STEP 4: Transcribing audio chunks in parallel")
+            logger.info("=" * 60)
+            transcriber = WhisperTranscriber()
+            
+            transcribed_chunks = await transcriber.transcribe_chunks(all_audio_chunks)
+            
+            # Check for any failed chunks
+            failed_chunks = [c for c in transcribed_chunks if c.error]
+            if failed_chunks:
+                logger.warning(f"{len(failed_chunks)} out of {len(transcribed_chunks)} chunks failed to transcribe.")
+            
+            logger.info("Transcription step completed.")
+
+            # Step 5: Speaker Segment Creation & Alignment
+            logger.info("=" * 60)
+            logger.info("STEP 5: Creating and aligning speaker segments")
+            logger.info("=" * 60)
+            diarizer = SpeakerDiarizer()
+            final_speaker_segments = diarizer.diarize_and_filter(transcribed_chunks)
+
+            # Step 6: Post-Processing & Final Assembly
+            logger.info("=" * 60)
+            logger.info("STEP 6: Post-processing and assembling final transcript")
+            logger.info("=" * 60)
+            postprocessor = TranscriptionPostProcessor()
+            final_text = postprocessor.assemble_transcript(final_speaker_segments)
+
+            # Create the final result object
+            processing_time = time.time() - start_time
+            result = InternalWhisperResult(
+                text=final_text,
+                diarization=True,
+                speaker_segments=final_speaker_segments,
+                processing_metadata=ProcessingMetadata(
+                    filename=filename,
+                    processing_time_seconds=processing_time,
+                    transcription_method="chunked_diarized",
+                    chunk_method="size_based",
+                    total_chunks=len(transcribed_chunks),
+                    original_audio_info=original_audio_info
+                )
             )
-            transcription_success, whisper_results, transcription_error = await asyncio.wait_for(
-                transcription_task, 
-                timeout=1200  # 20 minutes timeout
-            )
-        except asyncio.TimeoutError:
-            logger.error("Whisper transcription timed out after 20 minutes")
-            transcription_task.cancel()  # Cancel the task to free resources
+            
+            logger.info("Pipeline completed successfully.")
+            return True, result
+
+        except Exception as e:
+            logger.error(f"Failed during chunking or transcription step: {e}")
             return False, InternalWhisperResult(
-                text="Whisper transcription timed out after 20 minutes",
+                text=f"Failed during chunking/transcription: {e}",
                 diarization=False,
                 processing_metadata=ProcessingMetadata(
                     filename=filename,
                     processing_time_seconds=time.time() - start_time,
-                    transcription_method="timeout",
-                    chunk_method="chunked" if len(audio_chunks) > 2 else "direct",
-                    total_chunks=len(audio_chunks),
+                    transcription_method="failed_chunking_or_transcribing",
+                    chunk_method="size_based",
                     original_audio_info=original_audio_info
                 )
             )
         
-        if not transcription_success:
-            logger.error(f"Whisper transcription failed: {transcription_error}")
-            return False, InternalWhisperResult(
-                text=f"Whisper transcription failed: {transcription_error}",
-                diarization=False,
-                processing_metadata=ProcessingMetadata(
-                    filename=filename,
-                    processing_time_seconds=time.time() - start_time,
-                    transcription_method="failed",
-                    chunk_method="chunked" if len(audio_chunks) > 2 else "direct",
-                    total_chunks=len(audio_chunks),
-                    original_audio_info=original_audio_info
-                )
-            )
-        
-        # Step 5: Speaker Segment Creation & Alignment
-        logger.info("=" * 60)
-        logger.info("STEP 5: Creating speaker segments and alignment")
-        logger.info("=" * 60)
-        diarizer = SpeakerDiarizer()
-        
-        diarization_success, speaker_segments, diarization_error = await diarizer.create_speaker_segments(
-            whisper_results, 
-            channel_info_list,
-            audio_chunks
-        )
-        
-        if not diarization_success:
-            logger.error(f"Speaker diarization failed: {diarization_error}")
-            return False, InternalWhisperResult(
-                text=f"Speaker diarization failed: {diarization_error}",
-                diarization=False,
-                processing_metadata=ProcessingMetadata(
-                    filename=filename,
-                    processing_time_seconds=time.time() - start_time,
-                    transcription_method="whisper",
-                    chunk_method="chunked" if len(audio_chunks) > 2 else "direct",
-                    total_chunks=len(audio_chunks),
-                    original_audio_info=original_audio_info
-                )
-            )
-        
-        # Step 6: Post-Processing & Final Assembly
-        logger.info("=" * 60)
-        logger.info("STEP 6: Post-processing and final assembly")
-        logger.info("=" * 60)
-        postprocessor = TranscriptionPostProcessor()
-        
-        final_success, final_result, postprocess_error = await postprocessor.create_final_transcript(
-            speaker_segments,
-            whisper_results,
-            channel_info_list
-        )
-        
-        if not final_success:
-            logger.error(f"Post-processing failed: {postprocess_error}")
-            return False, InternalWhisperResult(
-                text=f"Post-processing failed: {postprocess_error}",
-                diarization=False,
-                processing_metadata=ProcessingMetadata(
-                    filename=filename,
-                    processing_time_seconds=time.time() - start_time,
-                    transcription_method="whisper",
-                    chunk_method="chunked" if len(audio_chunks) > 2 else "direct",
-                    total_chunks=len(audio_chunks),
-                    original_audio_info=original_audio_info
-                )
-            )
-        
-        # Create comprehensive processing metadata
-        processing_time = time.time() - start_time
-        
-        preprocessed_info = {}
-        if channel_info_list:
-            preprocessed_info = {
-                'channels': len(channel_info_list),
-                'duration': max(ch.duration for ch in channel_info_list),
-                'sample_rate': 16000,  # We resample to 16kHz
-                'format': 'WAV'
-            }
-        
-        diarization_summary = {
-            'num_speakers': len(set(seg.speaker_id for seg in speaker_segments)),
-            'num_segments': len(speaker_segments),
-            'total_duration': sum(seg.end_time - seg.start_time for seg in speaker_segments)
-        }
-        
-        metadata = ProcessingMetadata(
-            filename=filename,
-            processing_time_seconds=processing_time,
-            transcription_method="whisper",
-            chunk_method="chunked" if len(audio_chunks) > 2 else "direct",
-            total_chunks=len(audio_chunks),
-            has_speaker_alignment=True,
-            diarization_summary=diarization_summary,
-            original_audio_info=original_audio_info,
-            preprocessed_audio_info=preprocessed_info
-        )
-        
-        result = InternalWhisperResult(
-            text=final_result['text'],
-            diarization=len(speaker_segments) > 0,
-            confidence=final_result.get('confidence', 0.0),
-            speaker_segments=speaker_segments,
-            processing_metadata=metadata
-        )
-        
-        logger.info(f"Pipeline completed successfully in {processing_time:.2f} seconds")
-        logger.info(f"Final stats: {len(speaker_segments)} segments, {diarization_summary['num_speakers']} speakers")
-        
-        return True, result
-        
-    except Exception as e:
-        processing_time = time.time() - start_time
-        logger.error(f"Pipeline crashed: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        
-        return False, InternalWhisperResult(
-            text=f"Pipeline error: {str(e)}",
-            diarization=False,
-            processing_metadata=ProcessingMetadata(
-                filename=filename,
-                processing_time_seconds=processing_time,
-                transcription_method="failed",
-                chunk_method="none"
-            )
-        )
-    
     finally:
         # Step 7: Cleanup temporary files
         logger.info("=" * 60)
@@ -377,22 +273,6 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         except Exception as cleanup_error:
             cleanup_errors.append(f"Chunker cleanup: {cleanup_error}")
             logger.error(f"Error during chunker cleanup: {cleanup_error}")
-            
-        try:
-            if transcriber:
-                logger.debug("Cleaning up transcriber resources")
-                transcriber.cleanup()
-        except Exception as cleanup_error:
-            cleanup_errors.append(f"Transcriber cleanup: {cleanup_error}")
-            logger.error(f"Error during transcriber cleanup: {cleanup_error}")
-            
-        try:
-            if postprocessor:
-                logger.debug("Cleaning up postprocessor resources")
-                postprocessor.cleanup()
-        except Exception as cleanup_error:
-            cleanup_errors.append(f"Postprocessor cleanup: {cleanup_error}")
-            logger.error(f"Error during postprocessor cleanup: {cleanup_error}")
             
         # Log summary of cleanup
         if cleanup_errors:

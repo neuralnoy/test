@@ -26,12 +26,10 @@ class ChannelInfo(BaseModel):
 
 class AudioChunk(BaseModel):
     """Audio chunk for processing large files."""
-    chunk_id: str = Field(..., description="Unique chunk identifier")
-    channel_info: ChannelInfo = Field(..., description="Channel information")
+    file_path: str = Field(..., description="Path to chunk file")
+    speaker_id: str = Field(..., description="Associated speaker ID")
     start_time: float = Field(..., description="Start time in original audio")
     end_time: float = Field(..., description="End time in original audio")
-    file_path: str = Field(..., description="Path to chunk file")
-    file_size_mb: float = Field(..., description="Chunk file size in MB")
 
 class WhisperTranscriptionResult(BaseModel):
     """Result from Whisper transcription."""
@@ -39,6 +37,12 @@ class WhisperTranscriptionResult(BaseModel):
     segments: List[Dict[str, Any]] = Field(default_factory=list, description="Whisper segments with timestamps")
     language: Optional[str] = Field(default=None, description="Detected language")
     confidence: float = Field(default=0.0, description="Overall confidence score")
+
+class TranscribedChunk(BaseModel):
+    """Combines an audio chunk with its transcription result."""
+    chunk: AudioChunk = Field(..., description="The original audio chunk")
+    transcription_result: Optional[WhisperTranscriptionResult] = Field(default=None, description="The transcription result, if successful")
+    error: Optional[str] = Field(default=None, description="An error message, if transcription failed")
 
 class ProcessingMetadata(BaseModel):
     """Metadata about the processing pipeline."""

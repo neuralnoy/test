@@ -1,6 +1,6 @@
 """
 Audio Preprocessor for channel-based speaker diarization.
-Handles stereo channel splitting, and resampling with WAV format.
+Handles stereo channel splitting, resampling, and FLAC format conversion.
 """
 import os
 import tempfile
@@ -47,15 +47,11 @@ class AudioPreprocessor:
             # Split into left and right channels (Speaker 1 & Speaker 2)
             left_channel, right_channel = self._split_stereo_channels(audio_data)
             
-            # Determine speaker mapping based on audio energy
-            speaker_map = self._get_speaker_mapping(left_channel, right_channel)
-            logger.info(f"Speaker mapping determined: {speaker_map}")
-            
             # Process each channel separately
             channel_info_list = []
             
             for channel_id, channel_data in [("left", left_channel), ("right", right_channel)]:
-                speaker_id = speaker_map[channel_id]
+                speaker_id = "*Speaker 1*" if channel_id == "left" else "*Speaker 2*"
                 
                 logger.info(f"Step 2b: Processing {channel_id} channel ({speaker_id})")
                 
@@ -90,37 +86,6 @@ class AudioPreprocessor:
             error_msg = f"Error in audio preprocessing: {str(e)}"
             logger.error(error_msg)
             return False, [], error_msg
-    
-    def _get_speaker_mapping(self, left_channel: np.ndarray, right_channel: np.ndarray) -> Dict[str, str]:
-        """
-        Determine speaker mapping based on which channel has more audio energy.
-        The channel with higher energy is assigned Speaker_1.
-        
-        Args:
-            left_channel: Audio data for the left channel
-            right_channel: Audio data for the right channel
-            
-        Returns:
-            Dictionary mapping 'left' and 'right' to 'Speaker_1' and 'Speaker_2'
-        """
-        try:
-            # Calculate RMS energy for each channel
-            left_energy = np.sqrt(np.mean(left_channel**2))
-            right_energy = np.sqrt(np.mean(right_channel**2))
-            
-            logger.info(f"Channel energy: Left={left_energy:.4f}, Right={right_energy:.4f}")
-            
-            if left_energy >= right_energy:
-                # Left channel is more active (or equal), assign to Speaker_1
-                return {"left": "Speaker_1", "right": "Speaker_2"}
-            else:
-                # Right channel is more active, assign it to Speaker_1
-                return {"left": "Speaker_2", "right": "Speaker_1"}
-                
-        except Exception as e:
-            logger.error(f"Error determining speaker mapping from energy: {str(e)}. Falling back to default.")
-            # Default mapping if energy calculation fails
-            return {"left": "Speaker_1", "right": "Speaker_2"}
     
     def _load_audio_file(self, audio_file_path: str) -> Tuple[np.ndarray, int]:
         """
@@ -177,7 +142,7 @@ class AudioPreprocessor:
                              channel_id: str,
                              speaker_id: str) -> Tuple[bool, str, float, float]:
         """
-        Process individual audio channel: resample and save as WAV.
+        Process individual audio channel: resample and save as FLAC.
         
         Args:
             channel_data: Audio data for the channel
@@ -198,17 +163,16 @@ class AudioPreprocessor:
                 resampled_audio = self._resample_audio(channel_data, original_sample_rate, target_sample_rate)
             else:
                 resampled_audio = channel_data
-
             
             # Calculate duration
             duration = len(resampled_audio) / target_sample_rate
             logger.info(f"{channel_id} channel duration after processing: {duration:.2f}s")
             
-            # Save as WAV file
-            output_filename = f"{speaker_id}_{channel_id}.wav"
+            # Save as FLAC file
+            output_filename = f"{speaker_id}_{channel_id}.flac"
             output_path = os.path.join(self.temp_dir, output_filename)
             
-            success, file_size_mb = self._save_as_wav(resampled_audio, target_sample_rate, output_path)
+            success, file_size_mb = self._save_as_flac(resampled_audio, target_sample_rate, output_path)
             if not success:
                 return False, "", 0.0, 0.0
             
@@ -246,9 +210,9 @@ class AudioPreprocessor:
             return np.interp(np.linspace(0, len(audio_data), new_length), 
                            np.arange(len(audio_data)), audio_data)
 
-    def _save_as_wav(self, audio_data: np.ndarray, sample_rate: int, output_path: str) -> Tuple[bool, float]:
+    def _save_as_flac(self, audio_data: np.ndarray, sample_rate: int, output_path: str) -> Tuple[bool, float]:
         """
-        Save audio data as WAV file.
+        Save audio data as FLAC file.
         
         Args:
             audio_data: Audio data to save
@@ -266,18 +230,18 @@ class AudioPreprocessor:
                 audio_data = audio_data / np.max(np.abs(audio_data))
                 logger.info("Normalized audio to prevent clipping")
             
-            # Save as WAV with 16-bit PCM encoding
-            sf.write(output_path, audio_data, sample_rate, format='WAV', subtype='PCM_16')
+            # Save as FLAC with 16-bit PCM encoding
+            sf.write(output_path, audio_data, sample_rate, format='FLAC', subtype='PCM_16')
             
             # Calculate file size
             file_size_bytes = os.path.getsize(output_path)
             file_size_mb = file_size_bytes / (1024 * 1024)
             
-            logger.info(f"Saved WAV file: {output_path} ({file_size_mb:.2f}MB)")
+            logger.info(f"Saved FLAC file: {output_path} ({file_size_mb:.2f}MB)")
             return True, file_size_mb
             
         except Exception as e:
-            logger.error(f"Error saving WAV file {output_path}: {str(e)}")
+            logger.error(f"Error saving FLAC file {output_path}: {str(e)}")
             return False, 0.0
 
     def cleanup(self):
