@@ -15,9 +15,4 @@ instructor==1.8.3
 psutil 
 azure-search-documents==11.5.2
 # Audio processing dependencies for whisper app
-# Force compatible numba version for Python 3.12
-numba==0.61.2
-soundfile==0.13.1
-librosa==0.11.0
-numpy==2.2.6
-scikit-learn==1.7.0
+pydub==0.25.1

@@ -50,12 +50,16 @@ class TranscriptionPostProcessor:
             if not speaker_segments:
                 return False, {}, "No speaker segments provided for transcript creation"
             
-            # Step 6a: Create consolidated transcript without timestamps and with speaker consolidation
-            logger.info("Step 6a: Creating consolidated transcript")
-            diarized_transcript = self._create_consolidated_transcript(speaker_segments)
-            
-            # Step 6b: Generate conversation flow with proper formatting
-            logger.info("Step 6b: Generating conversation flow with proper formatting")
+            # Step 6a: Create a line-by-line transcript for raw output
+            logger.info("Step 6a: Creating line-by-line transcript")
+            diarized_transcript = self._create_line_by_line_transcript(speaker_segments)
+
+            # Step 6b: Create consolidated transcript for readability
+            logger.info("Step 6b: Creating consolidated transcript")
+            consolidated_transcript = self._create_consolidated_transcript(speaker_segments)
+
+            # Step 6c: Generate conversation flow with proper formatting
+            logger.info("Step 6c: Generating conversation flow with proper formatting")
             conversation_flow = self._generate_conversation_flow(speaker_segments)
             
             # Create speaker summary
@@ -70,6 +74,7 @@ class TranscriptionPostProcessor:
             # Assemble final result
             final_result = {
                 'text': diarized_transcript,
+                'consolidated_text': consolidated_transcript,
                 'conversation_flow': conversation_flow,
                 'speaker_summary': speaker_summary,
                 'timing_summary': timing_summary,
@@ -92,6 +97,26 @@ class TranscriptionPostProcessor:
             error_msg = f"Error creating final transcript: {str(e)}"
             logger.error(error_msg)
             return False, {}, error_msg
+    
+    def _create_line_by_line_transcript(self, speaker_segments: List[SpeakerSegment]) -> str:
+        """
+        Create a simple transcript where each segment is a new line.
+
+        Args:
+            speaker_segments: List of SpeakerSegment objects sorted by time.
+
+        Returns:
+            String containing the line-by-line transcript.
+        """
+        transcript_lines = []
+        try:
+            sorted_segments = sorted(speaker_segments, key=lambda x: x.start_time)
+            for segment in sorted_segments:
+                transcript_lines.append(f"{segment.speaker_id}: {segment.text}")
+            return "\n".join(transcript_lines)
+        except Exception as e:
+            logger.error(f"Error creating line-by-line transcript: {str(e)}")
+            return "Error creating transcript"
     
     def _create_consolidated_transcript(self, speaker_segments: List[SpeakerSegment]) -> str:
         """

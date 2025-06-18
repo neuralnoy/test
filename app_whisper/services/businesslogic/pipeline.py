@@ -6,6 +6,7 @@ import time
 from typing import Tuple
 from app_whisper.models.schemas import InternalWhisperResult, ProcessingMetadata
 from app_whisper.services.businesslogic.audio_downloader import AudioFileDownloader
+from app_whisper.services.businesslogic.audio_converter import AudioConverter
 from app_whisper.services.businesslogic.audio_preprocessor import AudioPreprocessor
 from app_whisper.services.businesslogic.audio_diarizer import SpeakerDiarizer
 from app_whisper.services.businesslogic.audio_chunker import AudioChunker
@@ -60,14 +61,23 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
     """
     Main audio processing pipeline that orchestrates all steps:
     
-    1. Download Audio File from Azure Blob Storage
-    2. Verify stereo format (optional)
-    3. Preprocess Audio (split channels, resample, trim silence, save as WAV)
-    4. Channel-Specific Audio Chunking (if needed)
-    5. Parallel Whisper Transcription for both channels
-    6. Speaker Segment Creation & Alignment
-    7. Post-Processing & Final Assembly
-    8. Cleanup temporary files
+    1.  Download Audio File: The original audio file is downloaded from Azure Blob Storage.
+    2.  Convert and Resample: The downloaded audio is converted to MP3 format and resampled to 32,000 Hz 
+        to standardize the input for subsequent processing. This step improves consistency and reduces file size.
+    3.  Verify Stereo Format: The converted MP3 file is checked to confirm it has two (stereo) channels. 
+        If the audio is mono, it is duplicated to create a stereo effect, ensuring compatibility with the
+        channel-based diarization process.
+    4.  Preprocess Audio: The stereo MP3 audio is split into two separate single-channel (mono) MP3 files, 
+        one for each speaker. This is a crucial step for channel-based speaker diarization.
+    5.  Audio Chunking: Each channel's MP3 file is analyzed, and if it exceeds the size limit for the
+        transcription service, it is split into smaller, manageable MP3 chunks.
+    6.  Parallel Transcription: All audio chunks from both channels are transcribed in parallel using the 
+        Azure OpenAI Whisper service. This step includes rate limiting to prevent API errors.
+    7.  Speaker Segment Creation: The transcription results from each channel are processed to create
+        speaker-labeled text segments with accurate timestamps. Overlapping speech is detected and resolved.
+    8.  Post-Processing and Assembly: The individual speaker segments are merged, sorted, and formatted into a 
+        final, human-readable transcript with speaker labels.
+    9.  Cleanup: All temporary files created during the process (downloads, MP3s, chunks) are deleted.
     
     Args:
         filename: Name of the audio file to process (blob name in Azure Storage)
@@ -81,6 +91,7 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
     chunker = None
     transcriber = None
     postprocessor = None
+    converter = None
     
     try:
         logger.info(f"Starting audio processing pipeline for: {filename}")
@@ -105,11 +116,28 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
                 )
             )
         
+        # Step 1.5: Convert to MP3
+        logger.info("=" * 60)
+        logger.info("STEP 1.5: Converting audio to MP3 and resampling")
+        logger.info("=" * 60)
+        converter = AudioConverter()
+        convert_success, converted_file_path, convert_error = converter.convert_to_mp3(
+            local_file_path,
+            downloader.temp_dir,
+            target_sample_rate=32000
+        )
+
+        if not convert_success:
+            logger.error(f"Audio conversion to MP3 failed: {convert_error}")
+            # This is not a fatal error, so we can proceed with the original file
+            logger.warning("Proceeding with the original audio file.")
+            converted_file_path = local_file_path
+        
         # Step 1b: Verify stereo format (optional)
         logger.info("=" * 60)
         logger.info("STEP 1b: Verifying audio format")
         logger.info("=" * 60)
-        is_stereo, original_audio_info = downloader.verify_stereo_format(local_file_path)
+        is_stereo, original_audio_info = downloader.verify_stereo_format(converted_file_path)
         if not is_stereo:
             logger.warning(f"Audio file is not stereo format, but continuing with processing")
         
@@ -139,12 +167,12 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         
         # Step 2: Preprocess Audio
         logger.info("=" * 60)
-        logger.info("STEP 2: Preprocessing audio (split channels, resample, trim, convert)")
+        logger.info("STEP 2: Preprocessing audio (splitting channels)")
         logger.info("=" * 60)
         preprocessor = AudioPreprocessor()
         
         preprocess_success, channel_info_list, preprocess_error = await preprocessor.preprocess_stereo_audio(
-            local_file_path, 
+            converted_file_path, 
             original_audio_info
         )
         
@@ -294,8 +322,8 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
             preprocessed_info = {
                 'channels': len(channel_info_list),
                 'duration': max(ch.duration for ch in channel_info_list),
-                'sample_rate': 16000,  # We resample to 16kHz
-                'format': 'WAV'
+                'sample_rate': original_audio_info.get('samplerate'),
+                'format': 'MP3'
             }
         
         diarization_summary = {
@@ -318,6 +346,7 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         
         result = InternalWhisperResult(
             text=final_result['text'],
+            consolidated_text=final_result.get('consolidated_text'),
             diarization=len(speaker_segments) > 0,
             confidence=final_result.get('confidence', 0.0),
             speaker_segments=speaker_segments,

@@ -59,6 +59,7 @@ class ProcessingMetadata(BaseModel):
 class InternalWhisperResult(BaseModel):
     """Internal result from whisper processing."""
     text: str
+    consolidated_text: Optional[str] = None
     diarization: bool
     confidence: float = Field(default=0.0, description="Overall confidence score")
     speaker_segments: List[SpeakerSegment] = Field(default_factory=list, description="Speaker-labeled segments")

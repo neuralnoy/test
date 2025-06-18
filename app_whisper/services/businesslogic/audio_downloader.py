@@ -103,7 +103,7 @@ class AudioFileDownloader:
     
     def verify_stereo_format(self, file_path: str) -> Tuple[bool, dict]:
         """
-        Verify that the audio file is in stereo format (2 channels).
+        Verify that the audio file is in stereo format (2 channels) using pydub.
         
         Args:
             file_path: Path to the audio file
@@ -112,25 +112,25 @@ class AudioFileDownloader:
             Tuple[bool, dict]: (is_stereo, audio_info)
         """
         try:
-            import soundfile as sf
+            from pydub import AudioSegment
             
-            # Get audio file info
-            info = sf.info(file_path)
+            # Use pydub to get audio file info, which supports more formats
+            audio = AudioSegment.from_file(file_path)
             
             audio_info = {
-                'channels': info.channels,
-                'sample_rate': info.samplerate,
-                'duration': info.frames / info.samplerate,
-                'format': info.format,
-                'subtype': info.subtype
+                'channels': audio.channels,
+                'samplerate': audio.frame_rate,
+                'duration': audio.duration_seconds,
+                'format': os.path.splitext(file_path)[1],
+                'subtype': None  # pydub does not provide a subtype
             }
             
-            is_stereo = info.channels == 2
+            is_stereo = audio.channels == 2
             
             if is_stereo:
                 logger.info(f"Audio file verified as stereo: {audio_info}")
             else:
-                logger.warning(f"Audio file is not stereo ({info.channels} channels): {audio_info}")
+                logger.warning(f"Audio file is not stereo ({audio.channels} channels): {audio_info}")
             
             return is_stereo, audio_info
             
