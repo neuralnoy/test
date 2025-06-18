@@ -104,6 +104,27 @@ Data (Feedback, Call, etc.) -> Service Bus Queue -> Feedback Processor -> AI Ana
 - Azure OpenAI endpoint
 - Azure Blob Storage account (optional)
 
+### System Dependencies
+
+The audio processing pipeline (`app_whisper`) relies on **FFmpeg**. You must install it on your system for the service to function correctly.
+
+- **On macOS (using Homebrew):**
+  ```bash
+  brew install ffmpeg
+  ```
+
+- **On Debian/Ubuntu:**
+  ```bash
+  sudo apt-get update && sudo apt-get install ffmpeg
+  ```
+
+- **On Windows:**
+  1. Download the latest build from the [official FFmpeg website](https://ffmpeg.org/download.html).
+  2. Unzip the file to a location on your computer (e.g., `C:\ffmpeg`).
+  3. Add the `bin` directory from the unzipped folder (e.g., `C:\ffmpeg\bin`) to your system's `PATH` environment variable.
+
+> **Note:** If you cannot add FFmpeg to your system's PATH, you can set the `FFMPEG_PATH` environment variable to the full path of the `ffmpeg` executable (e.g., `C:\ffmpeg\bin\ffmpeg.exe`).
+
 ### Setup
 
 1. Install dependencies:
@@ -126,6 +147,9 @@ export FEEDBACK_FORM_OUT_QUEUE="feedback-form-out"
 export AZURE_OPENAI_API_VERSION="2023-05-15"
 export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
 export AZURE_OPENAI_DEPLOYMENT_NAME="gpt-4"
+
+# FFmpeg Path (if not in system PATH)
+export FFMPEG_PATH="/path/to/your/ffmpeg"
 
 # Token limit (optional, default is 100,000)
 export OPENAI_TOKEN_LIMIT_PER_MINUTE="100000"

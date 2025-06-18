@@ -14,6 +14,12 @@ class AudioConverter:
 
     def __init__(self):
         """Initialize the audio converter."""
+        # Explicitly set the path to ffmpeg if provided in environment variables
+        ffmpeg_path = os.getenv("FFMPEG_PATH")
+        if ffmpeg_path and os.path.exists(ffmpeg_path):
+            logger.info(f"Using custom FFMPEG path: {ffmpeg_path}")
+            AudioSegment.converter = ffmpeg_path
+        
         logger.info("Initialized AudioConverter.")
 
     def convert_to_mp3(self, input_path: str, output_dir: str, target_sample_rate: Optional[int] = None) -> Tuple[bool, str, str]:
