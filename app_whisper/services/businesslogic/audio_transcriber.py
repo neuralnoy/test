@@ -38,34 +38,43 @@ class WhisperTranscriber:
         file_paths = [chunk.file_path for chunk in flat_chunk_list]
         logger.info(f"Starting transcription for {len(file_paths)} chunks.")
 
-        # 2. Transcribe all chunks concurrently. The service handles rate limiting.
-        # We need segment-level and word-level timestamps for later processing.
-        transcription_results = await self.whisper_service.transcribe_audio_chunks(
-            file_paths,
-            response_format="verbose_json",
-            timestamp_granularities=["word", "segment"]
-        )
+        # 2. Create a list of transcription tasks to be run concurrently.
+        tasks = []
+        for file_path in file_paths:
+            task = self.whisper_service.transcribe_audio(
+                file_path,
+                response_format="verbose_json",
+                timestamp_granularities=["segment"] # Only segment is supported
+            )
+            tasks.append(task)
+        
+        # 3. Run all transcription tasks concurrently. asyncio.gather will run them in parallel.
+        # The underlying service will handle rate-limiting with the app_counter.
+        transcription_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 3. Map results back to the original chunks
+        # 4. Map results back to the original chunks
         transcribed_chunks: List[TranscribedChunk] = []
         for i, chunk in enumerate(flat_chunk_list):
-            result_dict = transcription_results[i]
+            result_or_exc = transcription_results[i]
 
-            if result_dict.get("error"):
-                logger.error(f"Transcription failed for chunk {chunk.file_path}: {result_dict['error']}")
-                transcribed_chunks.append(TranscribedChunk(chunk=chunk, error=result_dict["error"]))
+            if isinstance(result_or_exc, Exception):
+                error_msg = str(result_or_exc)
+                logger.error(f"Transcription failed for chunk {chunk.file_path}: {error_msg}")
+                transcribed_chunks.append(TranscribedChunk(chunk=chunk, error=error_msg))
+            elif result_or_exc.get("error"):
+                logger.error(f"Transcription failed for chunk {chunk.file_path}: {result_or_exc['error']}")
+                transcribed_chunks.append(TranscribedChunk(chunk=chunk, error=result_or_exc["error"]))
             else:
                 try:
                     # The result from a successful verbose_json call will be parsed
                     # by the robust WhisperTranscriptionResult model.
-                    transcription_result = WhisperTranscriptionResult(**result_dict)
+                    transcription_result = WhisperTranscriptionResult(**result_or_exc)
                     
                     # --- Start of new logging ---
                     num_segments = len(transcription_result.segments)
-                    num_words = sum(len(s.words) for s in transcription_result.segments if s.words)
                     logger.info(f"Successfully transcribed chunk {chunk.file_path}:")
                     logger.info(f"  - Text: '{transcription_result.text[:100]}...'")
-                    logger.info(f"  - Metadata: {num_segments} segments, {num_words} words found.")
+                    logger.info(f"  - Metadata: {num_segments} segments found.")
                     # --- End of new logging ---
                     
                     transcribed_chunks.append(
