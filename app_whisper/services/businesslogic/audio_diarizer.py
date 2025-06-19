@@ -2,10 +2,9 @@
 Speaker Diarizer for channel-based speaker identification.
 Converts Whisper transcription results into speaker-labeled segments.
 """
-from typing import List, Dict, Optional, Tuple
+from typing import List
 from app_whisper.models.schemas import SpeakerSegment, TranscribedChunk
 from common_new.logger import get_logger
-import math
 
 logger = get_logger("businesslogic")
 
@@ -27,20 +26,20 @@ class SpeakerDiarizer:
         """
         logger.info("Starting simple timestamp-based diarization.")
         
-        # 1. Aggregate all speaker segments from all chunks, sorted by time.
+        # 1. Aggregate all speaker segments from all chunks, which also sorts them by time.
         all_segments = self._get_all_segments(transcribed_chunks)
         if not all_segments:
             logger.warning("No segments found in transcribed chunks to perform diarization.")
             return []
 
-        # 2. Merge consecutive segments from the same speaker
+        # 2. Merge consecutive segments from the same speaker.
         merged_segments = self._merge_consecutive_segments(all_segments)
         
         logger.info(f"Diarization complete. Generated {len(merged_segments)} final speaker segments.")
         return merged_segments
 
     def _get_all_segments(self, transcribed_chunks: List[TranscribedChunk]) -> List[SpeakerSegment]:
-        """Extracts and flattens all speaker segments from transcribed chunks."""
+        """Extracts and flattens all speaker segments from transcribed chunks, then sorts them."""
         all_segments = []
         for t_chunk in transcribed_chunks:
             if t_chunk.error or not t_chunk.transcription_result:
@@ -57,6 +56,7 @@ class SpeakerDiarizer:
                     text=segment_data.text.strip()
                 ))
         
+        # Sort the final list of all segments by their absolute start time
         all_segments.sort(key=lambda s: s.start_time)
         return all_segments
 
@@ -66,18 +66,21 @@ class SpeakerDiarizer:
             return []
             
         merged = []
+        # Initialize with the first segment
         current_segment = segments[0]
 
         for i in range(1, len(segments)):
             next_segment = segments[i]
+            # Check if the next segment is from the same speaker
             if next_segment.speaker_id == current_segment.speaker_id:
-                # Merge segments
+                # Merge the text and update the end time
                 current_segment.text += " " + next_segment.text
                 current_segment.end_time = next_segment.end_time
             else:
-                # Speaker has changed, finalize the current segment
+                # Speaker has changed, so finalize the current segment and start a new one
                 merged.append(current_segment)
                 current_segment = next_segment
         
+        # Append the very last segment after the loop finishes
         merged.append(current_segment)
         return merged
