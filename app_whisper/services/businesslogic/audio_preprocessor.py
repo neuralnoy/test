@@ -44,8 +44,11 @@ class AudioPreprocessor:
             
             logger.info(f"Loaded audio: shape={audio_data.shape}, sr={sample_rate}Hz")
             
+            # Trim silence from both channels simultaneously before splitting
+            trimmed_audio_data = self._trim_silence_from_stereo(audio_data, sample_rate)
+            
             # Split into left and right channels (Speaker 1 & Speaker 2)
-            left_channel, right_channel = self._split_stereo_channels(audio_data)
+            left_channel, right_channel = self._split_stereo_channels(trimmed_audio_data)
             
             # Process each channel separately
             channel_info_list = []
@@ -87,6 +90,49 @@ class AudioPreprocessor:
             logger.error(error_msg)
             return False, [], error_msg
     
+    def _trim_silence_from_stereo(self, audio_data: np.ndarray, sample_rate: int, silence_threshold: float = 0.01, min_sound_duration_ms: int = 100) -> np.ndarray:
+        """
+        Trims silence from the beginning and end of a stereo audio signal
+        based on the combined energy of both channels.
+        """
+        if audio_data.ndim != 2 or audio_data.shape[1] != 2:
+            logger.warning("Audio is not stereo, skipping silence trimming.")
+            return audio_data
+        
+        # Calculate the RMS energy of each frame for both channels combined
+        frame_length = int(sample_rate * 0.02) # 20ms frames
+        frames = np.lib.stride_tricks.as_strided(
+            audio_data,
+            shape=(audio_data.shape[0] // frame_length, frame_length, 2),
+            strides=(audio_data.strides[0] * frame_length, audio_data.strides[0], audio_data.strides[1])
+        )
+        # Combine energy: mean of squared samples across both channels
+        energy = np.mean(frames**2, axis=(1, 2))
+        
+        # Find where the audio is not silent
+        non_silent_indices = np.where(energy > silence_threshold**2)[0]
+        
+        if len(non_silent_indices) == 0:
+            logger.warning("Audio appears to be all silent, returning original audio.")
+            return audio_data
+            
+        start_frame = non_silent_indices[0]
+        end_frame = non_silent_indices[-1]
+        
+        start_sample = start_frame * frame_length
+        end_sample = (end_frame + 1) * frame_length
+        
+        # Ensure the trimmed audio is not too short
+        if (end_sample - start_sample) < (sample_rate * (min_sound_duration_ms / 1000.0)):
+            logger.warning("Trimming would result in audio shorter than min duration, skipping.")
+            return audio_data
+        
+        original_duration = audio_data.shape[0] / sample_rate
+        trimmed_duration = (end_sample - start_sample) / sample_rate
+        logger.info(f"Trimming stereo silence. Original duration: {original_duration:.2f}s, New duration: {trimmed_duration:.2f}s")
+        
+        return audio_data[start_sample:end_sample]
+
     def _load_audio_file(self, audio_file_path: str) -> Tuple[np.ndarray, int]:
         """
         Load audio file using soundfile.
