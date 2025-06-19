@@ -55,8 +55,11 @@ class TranscriptionPostProcessor:
         
         full_transcript = []
         for segment in speaker_segments:
-            # Clean the text for repetitions before appending
-            cleaned_text = self._clean_repetition(segment.text)
+            # First, normalize whitespace for all segments
+            normalized_text = " ".join(segment.text.split())
+            
+            # Then, clean for repetitions
+            cleaned_text = self._clean_repetition(normalized_text)
             full_transcript.append(f"{segment.speaker_id}: {cleaned_text}")
             
         return "\n".join(full_transcript)
