@@ -59,20 +59,20 @@ class SpeakerDiarizer:
         """Extracts and flattens all word-level data from transcribed chunks."""
         all_words = []
         for t_chunk in transcribed_chunks:
-            if t_chunk.error or not t_chunk.transcription_result or not t_chunk.transcription_result.segments:
+            if t_chunk.error or not t_chunk.transcription_result:
                 continue
             
             chunk_start_time = t_chunk.chunk.start_time
             speaker_id = t_chunk.chunk.speaker_id
 
             for segment in t_chunk.transcription_result.segments:
-                if 'words' not in segment or not segment['words']:
+                if not segment.words:
                     continue
-                for word_info in segment['words']:
+                for word_info in segment.words:
                     all_words.append({
-                        'text': word_info['word'],
-                        'start': word_info['start'] + chunk_start_time,
-                        'end': word_info['end'] + chunk_start_time,
+                        'text': word_info.word,
+                        'start': word_info.start + chunk_start_time,
+                        'end': word_info.end + chunk_start_time,
                         'speaker_id': speaker_id
                     })
         

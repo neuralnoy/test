@@ -31,12 +31,35 @@ class AudioChunk(BaseModel):
     start_time: float = Field(..., description="Start time in original audio")
     end_time: float = Field(..., description="End time in original audio")
 
+class Word(BaseModel):
+    """Represents a single word with timing information from Whisper."""
+    word: str
+    start: float
+    end: float
+
+class Segment(BaseModel):
+    """Represents a segment of speech from Whisper, containing words."""
+    id: int
+    seek: int
+    start: float
+    end: float
+    text: str
+    tokens: List[int]
+    temperature: float
+    avg_logprob: float
+    compression_ratio: float
+    no_speech_prob: float
+    words: Optional[List[Word]] = Field(default=None, description="Word-level timestamp information")
+
 class WhisperTranscriptionResult(BaseModel):
-    """Result from Whisper transcription."""
+    """Result from Whisper transcription, structured with detailed segments and words."""
     text: str = Field(..., description="Full transcribed text")
-    segments: List[Dict[str, Any]] = Field(default_factory=list, description="Whisper segments with timestamps")
+    segments: List[Segment] = Field(default_factory=list, description="Whisper segments with word timestamps")
     language: Optional[str] = Field(default=None, description="Detected language")
-    confidence: float = Field(default=0.0, description="Overall confidence score")
+
+    model_config = ConfigDict(
+        extra='ignore'  # Ignore extra fields from API response like 'duration'
+    )
 
 class TranscribedChunk(BaseModel):
     """Combines an audio chunk with its transcription result."""

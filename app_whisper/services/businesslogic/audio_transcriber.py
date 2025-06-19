@@ -56,10 +56,8 @@ class WhisperTranscriber:
                 transcribed_chunks.append(TranscribedChunk(chunk=chunk, error=result_dict["error"]))
             else:
                 try:
-                    # The result from a successful verbose_json call has 'text', 'segments', etc.
-                    # This should map to our WhisperTranscriptionResult model.
-                    # Whisper API does not return confidence, so we omit it from validation.
-                    result_dict.pop('confidence', None)
+                    # The result from a successful verbose_json call will be parsed
+                    # by the robust WhisperTranscriptionResult model.
                     transcription_result = WhisperTranscriptionResult(**result_dict)
                     
                     transcribed_chunks.append(
