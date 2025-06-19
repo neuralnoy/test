@@ -6,7 +6,6 @@ Creates diarized transcripts with proper speaker labels and conversation flow.
 from app_whisper.models.schemas import SpeakerSegment
 from common_new.logger import get_logger
 from typing import List
-import codecs
 
 logger = get_logger("businesslogic")
 
@@ -65,12 +64,14 @@ class TranscriptionPostProcessor:
         
         full_transcript = []
         for segment in speaker_segments:
-            # First, handle unicode escape sequences that may be in the text
+            # First, attempt to fix potential double-encoding issues
             try:
-                # This converts literal '\uXXXX' sequences into actual unicode characters
-                text_to_process = codecs.decode(segment.text, 'unicode_escape')
-            except Exception as e:
-                logger.warning(f"Could not decode unicode escapes for segment, using original text. Error: {e}")
+                # This pattern repairs text that was incorrectly decoded as latin-1
+                # when it should have been utf-8.
+                text_to_process = segment.text.encode('latin-1').decode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError) as e:
+                # This can happen if the string is already correct, so we fall back
+                logger.debug(f"Could not apply encoding fix for segment, using original text. Error: {e}")
                 text_to_process = segment.text
 
             # Next, normalize whitespace
