@@ -60,10 +60,17 @@ class WhisperTranscriber:
                     # by the robust WhisperTranscriptionResult model.
                     transcription_result = WhisperTranscriptionResult(**result_dict)
                     
+                    # --- Start of new logging ---
+                    num_segments = len(transcription_result.segments)
+                    num_words = sum(len(s.words) for s in transcription_result.segments if s.words)
+                    logger.info(f"Successfully transcribed chunk {chunk.file_path}:")
+                    logger.info(f"  - Text: '{transcription_result.text[:100]}...'")
+                    logger.info(f"  - Metadata: {num_segments} segments, {num_words} words found.")
+                    # --- End of new logging ---
+                    
                     transcribed_chunks.append(
                         TranscribedChunk(chunk=chunk, transcription_result=transcription_result)
                     )
-                    logger.debug(f"Successfully transcribed chunk {chunk.file_path}")
                 except Exception as e:
                     logger.error(f"Failed to parse transcription result for chunk {chunk.file_path}: {e}")
                     transcribed_chunks.append(TranscribedChunk(chunk=chunk, error=str(e)))
