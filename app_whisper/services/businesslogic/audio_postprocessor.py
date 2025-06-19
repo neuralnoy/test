@@ -11,47 +11,38 @@ logger = get_logger("businesslogic")
 
 class TranscriptionPostProcessor:
     
-    def _clean_repetitive_phrases(self, text: str) -> str:
+    def _clean_repetition(self, text: str) -> str:
         """
-        Cleans up repetitive phrases in a text.
-        If a phrase is repeated more than 3 times, it's replaced with 1 occurrence and '...'.
-        It prioritizes cleaning the longest possible repeating phrase first.
+        Cleans up repetitive words in a text.
+        If a word is repeated more than 3 times, it's replaced with 1 occurrence and '...'.
         """
         words = text.split()
-        n = len(words)
-        if n < 4:
+        if len(words) < 4:
             return text
 
         result_words = []
         i = 0
-        while i < n:
-            found_repetition = False
-            # Search for the longest possible repeating phrase starting at `i`
-            # We iterate from longest possible length down to 1
-            max_len = (n - i) // 4  # Phrase must repeat > 3 times
-            for length in range(max_len, 0, -1):
-                phrase = words[i : i + length]
-                
-                # Count how many times this phrase repeats
-                reps = 1
-                k = i + length
-                while k + length <= n and words[k : k + length] == phrase:
-                    reps += 1
-                    k += length
-                
-                if reps > 3:
-                    # We found our longest repeating phrase, process it
-                    result_words.extend(phrase)
-                    result_words.append("...")
-                    i += length * reps  # Move index past the entire block
-                    found_repetition = True
-                    break # Stop searching for shorter phrases
+        while i < len(words):
+            current_word = words[i]
             
-            if not found_repetition:
-                # No repetition found at this position, just add the word
+            # Find how many times this word repeats consecutively, ignoring case and some punctuation.
+            j = i
+            while (j < len(words) and 
+                   words[j].strip('.,!?').lower() == current_word.strip('.,!?').lower()):
+                j += 1
+            
+            count = j - i
+            
+            if count > 3:
+                # Add the first occurrence and an ellipsis, then skip past the sequence
+                result_words.append(words[i])
+                result_words.append("...")
+                i = j
+            else:
+                # No excessive repetition, just add the single word and move on
                 result_words.append(words[i])
                 i += 1
-                
+        
         return " ".join(result_words)
 
     def assemble_transcript(self, speaker_segments: List[SpeakerSegment]) -> str:
@@ -64,21 +55,11 @@ class TranscriptionPostProcessor:
         
         full_transcript = []
         for segment in speaker_segments:
-            # First, attempt to fix potential double-encoding issues
-            try:
-                # This pattern repairs text that was incorrectly decoded as latin-1
-                # when it should have been utf-8.
-                text_to_process = segment.text.encode('latin-1').decode('utf-8')
-            except (UnicodeEncodeError, UnicodeDecodeError) as e:
-                # This can happen if the string is already correct, so we fall back
-                logger.debug(f"Could not apply encoding fix for segment, using original text. Error: {e}")
-                text_to_process = segment.text
-
-            # Next, normalize whitespace
-            normalized_text = " ".join(text_to_process.split())
+            # First, normalize whitespace for all segments
+            normalized_text = " ".join(segment.text.split())
             
-            # Then, clean for repetitive phrases
-            cleaned_text = self._clean_repetitive_phrases(normalized_text)
+            # Then, clean for repetitions
+            cleaned_text = self._clean_repetition(normalized_text)
             full_transcript.append(f"{segment.speaker_id}: {cleaned_text}")
             
         return "\n".join(full_transcript)
