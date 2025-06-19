@@ -12,7 +12,7 @@ uuid==1.30
 tiktoken==0.9.0
 azure-storage-blob==12.25.1
 instructor==1.8.3
-psutil 
+psutil
 azure-search-documents==11.5.2
 # Audio processing dependencies for whisper app
 # Force compatible numba version for Python 3.12

@@ -3,6 +3,8 @@ Main audio processing pipeline for Azure OpenAI Whisper with channel-based speak
 Orchestrates the complete pipeline from audio download to final transcribed output.
 """
 import time
+import psutil
+import os
 from typing import Tuple
 from app_whisper.models.schemas import InternalWhisperResult, ProcessingMetadata
 from app_whisper.services.businesslogic.audio_downloader import AudioFileDownloader
@@ -75,6 +77,10 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
     Returns:
         Tuple[bool, InternalWhisperResult]: (success, result)
     """
+    process = psutil.Process(os.getpid())
+    start_mem = process.memory_info().rss / (1024 * 1024)
+    logger.info(f"Pipeline start memory: {start_mem:.2f} MB")
+    
     start_time = time.time()
     downloader = None
     preprocessor = None
@@ -225,17 +231,19 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
                 )
             )
             
+            logger.info(f"Total pipeline processing time for {filename}: {processing_time:.2f} seconds.")
             logger.info("Pipeline completed successfully.")
             return True, result
 
         except Exception as e:
-            logger.error(f"Failed during chunking or transcription step: {e}")
+            processing_time = time.time() - start_time
+            logger.error(f"Pipeline failed for {filename} after {processing_time:.2f} seconds: {e}")
             return False, InternalWhisperResult(
                 text=f"Failed during chunking/transcription: {e}",
                 diarization=False,
                 processing_metadata=ProcessingMetadata(
                     filename=filename,
-                    processing_time_seconds=time.time() - start_time,
+                    processing_time_seconds=processing_time,
                     transcription_method="failed_chunking_or_transcribing",
                     chunk_method="size_based",
                     original_audio_info=original_audio_info
@@ -284,3 +292,6 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         import gc
         gc.collect()
         logger.debug("Forced garbage collection after cleanup")
+        
+        end_mem = process.memory_info().rss / (1024 * 1024)
+        logger.info(f"Pipeline end memory: {end_mem:.2f} MB. Usage delta: {end_mem - start_mem:.2f} MB")
