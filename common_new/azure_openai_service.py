@@ -619,7 +619,7 @@ class AzureOpenAIServiceWhisper(AzureOpenAIService):
             return False
         
         # Check file extension
-        supported_formats = {'.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm'}
+        supported_formats = {'.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.wav', '.webm', '.flac'}
         file_extension = os.path.splitext(audio_file_path)[1].lower()
         
         if file_extension not in supported_formats:
