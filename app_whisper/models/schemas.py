@@ -14,7 +14,6 @@ class SpeakerSegment(BaseModel):
     end_time: float = Field(..., description="End time in seconds") 
     speaker_id: str = Field(..., description="Speaker identifier (Speaker_1 or Speaker_2)")
     text: str = Field(default="", description="Transcribed text for this segment")
-    confidence: Optional[float] = Field(default=None, description="Confidence score")
 
 class ChannelInfo(BaseModel):
     """Information about audio channel processing."""
