@@ -2,20 +2,14 @@
 Main audio processing pipeline for Azure OpenAI Whisper with channel-based speaker diarization.
 Orchestrates the complete pipeline from audio download to final transcribed output.
 """
-import time
-import psutil
-import os
-from typing import Tuple
-from app_whisper.models.schemas import InternalWhisperResult, ProcessingMetadata
-from app_whisper.services.businesslogic.audio_downloader import AudioFileDownloader
-from app_whisper.services.businesslogic.audio_preprocessor import AudioPreprocessor
-from app_whisper.services.businesslogic.audio_diarizer import SpeakerDiarizer
-from app_whisper.services.businesslogic.audio_chunker import AudioChunker
-from app_whisper.services.businesslogic.audio_transcriber import WhisperTranscriber
-from app_whisper.services.businesslogic.audio_postprocessor import TranscriptionPostProcessor
+
 from common_new.logger import get_logger
 from common_new.retry_helpers import with_token_limit_retry
 from common_new.token_client import TokenClient
+from typing import Tuple
+from app_whisper.models.schemas import InternalWhisperResult, ProcessingMetadata
+from app_whisper.services.businesslogic.audio_downloader import AudioFileDownloader
+import time
 
 logger = get_logger("businesslogic")
 
@@ -62,15 +56,15 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
     """
     Main audio processing pipeline that orchestrates all steps:
     
-    1. Download Audio File from Azure Blob Storage and verify stereo format. If not stereo, proceed without diarization logic.
-    2. Remove silence from audio where both channels are silent.
-    3. Do the diarization according to the energy of the channels and inertia.
-    4. Upsample the audio to 16kHz (if not already 16kHz) and convert to mono. Then convert to .flac.
-    5. Do the chunking of the audio if needed (larger than 24MB)
-    6. Send to whisper concurrently all the chunks and receive the transcription with segment-level timestamps
-    7. Combine the transcription results into a single transcription and use the diarization result to apply to the transcription.
-    8. Post process the transcription to remove the repetitions of the same word or phrases and return the final combined transcription.
-    9. Cleanup temporary files
+    1. Download Audio File from Azure Blob Storage and verify stereo format (audio_downloader)
+    2. Remove silence from audio where both channels are silent (audio_preprocessor)
+    3. Perform diarization according to the energy of the channels and inertia (audio_diarizer)
+    4. Preprocess the audio to 16kHz (if not already 16kHz) and convert to mono. Then convert to .flac. (audio_preprocessor)
+    5. Chunk the audio into smaller chunks (audio_chunker)
+    6. Parallel Whisper Transcription for mono audio chunks(audio_transcriber)
+    7. Apply diarization to the transcription (audio_postprocessor)
+    8. Post-Processing & Final Assembly (audio_postprocessor)
+    9. Cleanup temporary files (audio_postprocessor)
     
     Args:
         filename: Name of the audio file to process (blob name in Azure Storage)
@@ -78,4 +72,52 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
     Returns:
         Tuple[bool, InternalWhisperResult]: (success, result)
     """
-    pass
+    start_time = time.time()
+    downloader = None
+    try:
+        # 1. Download Audio File and verify stereo
+        logger.info(f"Starting pipeline for file: {filename}")
+        downloader = AudioFileDownloader()
+        success, local_file_path, error_msg = await downloader.download_audio_file(filename)
+
+        if not success:
+            logger.error(f"Failed to download audio file {filename}: {error_msg}")
+            return False, InternalWhisperResult(
+                text=f"Failed to download audio file: {error_msg}",
+                diarization=False,
+                processing_metadata=ProcessingMetadata(
+                    filename=filename,
+                    processing_time_seconds=time.time() - start_time,
+                    transcription_method="failed_download",
+                    chunk_method="none"
+                )
+            )
+        
+        logger.info(f"Successfully downloaded {filename} to {local_file_path}")
+
+        is_stereo, audio_info = downloader.verify_stereo_format(local_file_path)
+        if not is_stereo:
+            # This pipeline is designed for stereo files, but we'll log a warning and continue.
+            # Subsequent steps might fail if they strictly expect two channels.
+            logger.warning(f"Audio file {filename} is not in stereo format. Processing will continue.")
+
+        # Placeholder for subsequent steps
+        pass
+
+    finally:
+        if downloader:
+            downloader.cleanup()
+            logger.info("Temporary download directory cleaned up.")
+    
+    # This is a temporary return value until the full pipeline is implemented
+    return True, InternalWhisperResult(
+        text="Pipeline step 1 (download) complete. More steps to follow.",
+        diarization=False,
+        processing_metadata=ProcessingMetadata(
+            filename=filename,
+            processing_time_seconds=time.time() - start_time,
+            transcription_method="mono",
+            chunk_method="TBD",
+            original_audio_info=audio_info
+        )
+    )
