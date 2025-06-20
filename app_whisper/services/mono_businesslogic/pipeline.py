@@ -9,6 +9,8 @@ from common_new.token_client import TokenClient
 from typing import Tuple
 from app_whisper.models.schemas import InternalWhisperResult, ProcessingMetadata
 from app_whisper.services.businesslogic.audio_downloader import AudioFileDownloader
+from app_whisper.services.mono_businesslogic.audio_preprocessor import AudioPreprocessor
+from app_whisper.services.mono_businesslogic.audio_diarizer import AudioDiarizer
 import time
 
 logger = get_logger("businesslogic")
@@ -74,6 +76,7 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
     """
     start_time = time.time()
     downloader = None
+    preprocessor = None
     try:
         # 1. Download Audio File and verify stereo
         logger.info(f"Starting pipeline for file: {filename}")
@@ -97,9 +100,82 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
 
         is_stereo, audio_info = downloader.verify_stereo_format(local_file_path)
         if not is_stereo:
-            # This pipeline is designed for stereo files, but we'll log a warning and continue.
-            # Subsequent steps might fail if they strictly expect two channels.
-            logger.warning(f"Audio file {filename} is not in stereo format. Processing will continue.")
+            logger.error(f"Audio file {filename} is not in stereo format, which is required for this pipeline.")
+            return False, InternalWhisperResult(
+                text="Audio file is not stereo.",
+                diarization=False,
+                processing_metadata=ProcessingMetadata(
+                    filename=filename,
+                    processing_time_seconds=time.time() - start_time,
+                    transcription_method="failed_preprocess",
+                    chunk_method="none",
+                    original_audio_info=audio_info
+                )
+            )
+
+        # 2. Remove silence from audio where both channels are silent
+        logger.info("Starting silence removal step.")
+        preprocessor = AudioPreprocessor()
+        success, silence_trimmed_path, error_msg = preprocessor.remove_silence_from_stereo(local_file_path)
+
+        if not success:
+            logger.error(f"Failed to remove silence from {filename}: {error_msg}")
+            return False, InternalWhisperResult(
+                text=f"Failed during silence removal: {error_msg}",
+                diarization=False,
+                processing_metadata=ProcessingMetadata(
+                    filename=filename,
+                    processing_time_seconds=time.time() - start_time,
+                    transcription_method="failed_preprocess",
+                    chunk_method="none",
+                    original_audio_info=audio_info
+                )
+            )
+        
+        logger.info(f"Successfully removed silence. New audio at: {silence_trimmed_path}")
+
+        # 3. Perform diarization according to the energy of the channels and inertia
+        logger.info("Starting diarization step.")
+        diarizer = AudioDiarizer()
+        success, speaker_segments, error_msg = diarizer.diarize(silence_trimmed_path)
+
+        if not success:
+            logger.error(f"Failed to diarize {filename}: {error_msg}")
+            return False, InternalWhisperResult(
+                text=f"Failed during diarization: {error_msg}",
+                diarization=False,
+                processing_metadata=ProcessingMetadata(
+                    filename=filename,
+                    processing_time_seconds=time.time() - start_time,
+                    transcription_method="failed_diarization",
+                    chunk_method="none",
+                    original_audio_info=audio_info
+                )
+            )
+        
+        logger.info(f"Successfully diarized audio. Found {len(speaker_segments)} segments.")
+
+        # 4. Preprocess the audio to 16kHz mono FLAC
+        logger.info("Starting mono conversion, resampling, and FLAC encoding.")
+        success, mono_flac_path, error_msg, preprocessed_audio_info = preprocessor.process_to_mono_flac(silence_trimmed_path)
+
+        if not success:
+            logger.error(f"Failed to preprocess audio for {filename}: {error_msg}")
+            return False, InternalWhisperResult(
+                text=f"Failed during preprocessing (mono/flac): {error_msg}",
+                diarization=True,
+                speaker_segments=speaker_segments,
+                processing_metadata=ProcessingMetadata(
+                    filename=filename,
+                    processing_time_seconds=time.time() - start_time,
+                    transcription_method="failed_preprocess",
+                    chunk_method="none",
+                    original_audio_info=audio_info,
+                    has_speaker_alignment=True
+                )
+            )
+
+        logger.info(f"Successfully preprocessed audio to mono FLAC: {mono_flac_path}")
 
         # Placeholder for subsequent steps
         pass
@@ -108,16 +184,22 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         if downloader:
             downloader.cleanup()
             logger.info("Temporary download directory cleaned up.")
+        if preprocessor:
+            preprocessor.cleanup()
+            logger.info("Temporary preprocessor directory cleaned up.")
     
     # This is a temporary return value until the full pipeline is implemented
     return True, InternalWhisperResult(
-        text="Pipeline step 1 (download) complete. More steps to follow.",
-        diarization=False,
+        text="Pipeline steps 1-4 (download, silence removal, diarization, preprocess) complete. More steps to follow.",
+        diarization=True, # Diarization was successful
+        speaker_segments=speaker_segments,
         processing_metadata=ProcessingMetadata(
             filename=filename,
             processing_time_seconds=time.time() - start_time,
             transcription_method="mono",
             chunk_method="TBD",
-            original_audio_info=audio_info
+            original_audio_info=audio_info,
+            preprocessed_audio_info=preprocessed_audio_info,
+            has_speaker_alignment=True
         )
     )
