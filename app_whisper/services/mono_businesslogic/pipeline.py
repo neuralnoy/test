@@ -13,6 +13,7 @@ from app_whisper.services.mono_businesslogic.audio_preprocessor import AudioPrep
 from app_whisper.services.mono_businesslogic.audio_diarizer import AudioDiarizer
 from app_whisper.services.mono_businesslogic.audio_chunker import AudioChunker
 from app_whisper.services.mono_businesslogic.audio_transcriber import WhisperTranscriber
+from app_whisper.services.mono_businesslogic.audio_postprocessor import TranscriptionPostProcessor
 import time
 
 logger = get_logger("businesslogic")
@@ -236,8 +237,18 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
 
         logger.info("Successfully transcribed audio chunks.")
 
-        # Placeholder for subsequent steps
-        pass
+        # 7. Apply diarization to the transcription and assemble final transcript
+        logger.info("Starting post-processing to assemble final transcript.")
+        post_processor = TranscriptionPostProcessor()
+        # Filter out chunks that failed to transcribe before passing to post-processor
+        successful_chunks = [tc for tc in transcribed_chunks if tc.transcription_result]
+        final_transcript = post_processor.assemble_transcript(successful_chunks, speaker_segments)
+
+        if not final_transcript:
+            logger.warning(f"Post-processing for {filename} resulted in an empty transcript.")
+
+        processing_time = time.time() - start_time
+        logger.info(f"Pipeline completed for {filename} in {processing_time:.2f} seconds.")
 
     finally:
         if downloader:
@@ -250,14 +261,13 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
             chunker.cleanup()
             logger.info("Temporary chunker directory cleaned up.")
     
-    # This is a temporary return value until the full pipeline is implemented
     return True, InternalWhisperResult(
-        text="Pipeline steps 1-6 (download, silence removal, diarization, preprocess, chunking, transcription) complete. More steps to follow.",
-        diarization=True, # Diarization was successful
-        speaker_segments=speaker_segments,
+        text=final_transcript,
+        diarization=True,
+        speaker_segments=speaker_segments, # Return original diarization for metadata
         processing_metadata=ProcessingMetadata(
             filename=filename,
-            processing_time_seconds=time.time() - start_time,
+            processing_time_seconds=processing_time,
             transcription_method="mono",
             chunk_method=chunk_method,
             total_chunks=len(audio_chunks),
