@@ -1,19 +1,19 @@
 """
-Audio Chunker for channel-based speaker diarization.
-Handles size-based chunking while maintaining timestamp alignment between channels.
+Audio Chunker for mono audio files.
+Handles size-based chunking for large audio files before transcription.
 """
 import math
 import os
 import tempfile
 import soundfile as sf
-from typing import List, Dict
-from app_whisper.models.schemas import ChannelInfo, AudioChunk
+from typing import List
+from app_whisper.models.schemas import AudioChunk
 from common_new.logger import get_logger
 
 logger = get_logger("businesslogic")
 
 class AudioChunker:
-    """Chunks audio files based on size while maintaining channel alignment."""
+    """Chunks a single mono audio file based on size."""
 
     def __init__(self, max_chunk_size_mb: float = 24.0):
         """
@@ -27,92 +27,78 @@ class AudioChunker:
         logger.info(f"Initialized AudioChunker with temp directory: {self.temp_dir}")
         logger.info(f"Max chunk size set to: {self.max_chunk_size_mb} MB")
 
-    def chunk_audio(self, channel_info_list: List[ChannelInfo]) -> Dict[str, List[AudioChunk]]:
+    def chunk_audio(self, file_path: str, audio_info: dict) -> List[AudioChunk]:
         """
-        Chunks audio files for each channel if they exceed the size limit.
+        Chunks a mono audio file if it exceeds the size limit.
         
         Args:
-            channel_info_list: A list of ChannelInfo objects from the preprocessor.
+            file_path: The path to the mono audio file.
+            audio_info: A dictionary containing 'file_size_mb' and 'duration'.
             
         Returns:
-            A dictionary where keys are speaker_ids and values are lists of AudioChunk objects.
+            A list of AudioChunk objects.
         """
         logger.info("Starting audio chunking process...")
+        
+        file_size_mb = audio_info.get('file_size_mb', 0)
+        duration = audio_info.get('duration', 0)
 
-        # Check if any channel exceeds the max size
-        needs_chunking = any(info.file_size_mb > self.max_chunk_size_mb for info in channel_info_list)
+        if file_size_mb <= self.max_chunk_size_mb:
+            logger.info("No chunking needed. Audio file is within size limits.")
+            return [AudioChunk(
+                file_path=file_path,
+                speaker_id="mono",
+                start_time=0.0,
+                end_time=duration
+            )]
 
-        if not needs_chunking:
-            logger.info("No chunking needed. All channel files are within size limits.")
-            # Create a single chunk for each channel covering the full duration
-            all_chunks = {}
-            for info in channel_info_list:
-                chunk = AudioChunk(
-                    file_path=info.file_path,
-                    speaker_id=info.speaker_id,
-                    start_time=0.0,
-                    end_time=info.duration
-                )
-                all_chunks[info.speaker_id] = [chunk]
-            return all_chunks
-
-        logger.info("Chunking required. At least one channel exceeds size limit.")
+        logger.info("Chunking required. Audio file exceeds size limit.")
 
         # --- Chunking Logic ---
-        # 1. Determine the number of chunks needed based on the largest file
-        max_file_size = max(info.file_size_mb for info in channel_info_list)
-        num_chunks = math.ceil(max_file_size / self.max_chunk_size_mb)
-        logger.info(f"Largest channel file size is {max_file_size:.2f}MB. Will create {num_chunks} chunks.")
+        num_chunks = math.ceil(file_size_mb / self.max_chunk_size_mb)
+        logger.info(f"File size is {file_size_mb:.2f}MB. Will create {num_chunks} chunks.")
+        
+        chunk_duration = duration / num_chunks
+        logger.info(f"Total duration is {duration:.2f}s. Each chunk will be ~{chunk_duration:.2f}s.")
+        
+        audio_chunks = []
+        try:
+            audio_data, sample_rate = sf.read(file_path)
+        except Exception as e:
+            logger.error(f"Failed to read audio file {file_path}: {e}")
+            raise
 
-        # 2. Get total duration (should be the same for all channels)
-        total_duration = channel_info_list[0].duration
-        chunk_duration = total_duration / num_chunks
-        logger.info(f"Total duration is {total_duration:.2f}s. Each chunk will be ~{chunk_duration:.2f}s.")
-
-        all_chunks = {info.speaker_id: [] for info in channel_info_list}
-
-        # 3. Process each channel
-        for info in channel_info_list:
-            logger.info(f"Chunking channel for {info.speaker_id} from file: {info.file_path}")
+        for i in range(num_chunks):
+            start_time = i * chunk_duration
+            end_time = (i + 1) * chunk_duration
+            if end_time > duration:
+                end_time = duration
             
+            start_sample = int(start_time * sample_rate)
+            end_sample = int(end_time * sample_rate)
+
+            chunk_audio_data = audio_data[start_sample:end_sample]
+
+            chunk_filename = f"mono_chunk_{i+1}.flac"
+            chunk_filepath = os.path.join(self.temp_dir, chunk_filename)
+
             try:
-                audio_data, sample_rate = sf.read(info.file_path)
+                sf.write(chunk_filepath, chunk_audio_data, sample_rate, format='FLAC', subtype='PCM_16')
+                logger.info(f"Saved chunk {i+1} to {chunk_filepath}")
             except Exception as e:
-                logger.error(f"Failed to read audio file {info.file_path}: {e}")
+                logger.error(f"Failed to write chunk file {chunk_filepath}: {e}")
                 raise
 
-            # 4. Create chunks for this channel
-            for i in range(num_chunks):
-                start_time = i * chunk_duration
-                end_time = (i + 1) * chunk_duration
-                if end_time > total_duration:
-                    end_time = total_duration
-                
-                start_sample = int(start_time * sample_rate)
-                end_sample = int(end_time * sample_rate)
-
-                chunk_audio_data = audio_data[start_sample:end_sample]
-
-                chunk_filename = f"{info.speaker_id.replace('*', '')}_chunk_{i+1}.flac"
-                chunk_filepath = os.path.join(self.temp_dir, chunk_filename)
-
-                try:
-                    sf.write(chunk_filepath, chunk_audio_data, sample_rate, format='FLAC', subtype='PCM_16')
-                    logger.info(f"Saved chunk {i+1} for {info.speaker_id} to {chunk_filepath}")
-                except Exception as e:
-                    logger.error(f"Failed to write chunk file {chunk_filepath}: {e}")
-                    raise
-
-                chunk = AudioChunk(
-                    file_path=chunk_filepath,
-                    speaker_id=info.speaker_id,
-                    start_time=start_time,
-                    end_time=end_time
-                )
-                all_chunks[info.speaker_id].append(chunk)
+            chunk = AudioChunk(
+                file_path=chunk_filepath,
+                speaker_id="mono",
+                start_time=start_time,
+                end_time=end_time
+            )
+            audio_chunks.append(chunk)
 
         logger.info("Audio chunking process completed successfully.")
-        return all_chunks
+        return audio_chunks
 
     def cleanup(self):
         """Clean up the temporary directory used for chunks."""

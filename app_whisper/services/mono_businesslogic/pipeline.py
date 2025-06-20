@@ -11,6 +11,7 @@ from app_whisper.models.schemas import InternalWhisperResult, ProcessingMetadata
 from app_whisper.services.businesslogic.audio_downloader import AudioFileDownloader
 from app_whisper.services.mono_businesslogic.audio_preprocessor import AudioPreprocessor
 from app_whisper.services.mono_businesslogic.audio_diarizer import AudioDiarizer
+from app_whisper.services.mono_businesslogic.audio_chunker import AudioChunker
 import time
 
 logger = get_logger("businesslogic")
@@ -77,6 +78,7 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
     start_time = time.time()
     downloader = None
     preprocessor = None
+    chunker = None
     try:
         # 1. Download Audio File and verify stereo
         logger.info(f"Starting pipeline for file: {filename}")
@@ -177,6 +179,32 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
 
         logger.info(f"Successfully preprocessed audio to mono FLAC: {mono_flac_path}")
 
+        # 5. Chunk the audio into smaller chunks
+        logger.info("Starting audio chunking step.")
+        chunker = AudioChunker()
+        audio_chunks = chunker.chunk_audio(mono_flac_path, preprocessed_audio_info)
+
+        if not audio_chunks:
+            logger.error(f"Audio chunking failed for {filename}. No chunks were produced.")
+            # This is a critical failure, but let's create a specific error message
+            return False, InternalWhisperResult(
+                text="Failed during audio chunking: no chunks created.",
+                diarization=True,
+                speaker_segments=speaker_segments,
+                processing_metadata=ProcessingMetadata(
+                    filename=filename,
+                    processing_time_seconds=time.time() - start_time,
+                    transcription_method="failed_chunking",
+                    chunk_method="size_based",
+                    original_audio_info=audio_info,
+                    preprocessed_audio_info=preprocessed_audio_info,
+                    has_speaker_alignment=True
+                )
+            )
+            
+        chunk_method = "size_based" if len(audio_chunks) > 1 else "direct"
+        logger.info(f"Audio chunking complete. Created {len(audio_chunks)} chunk(s) using '{chunk_method}' method.")
+
         # Placeholder for subsequent steps
         pass
 
@@ -187,17 +215,21 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         if preprocessor:
             preprocessor.cleanup()
             logger.info("Temporary preprocessor directory cleaned up.")
+        if chunker:
+            chunker.cleanup()
+            logger.info("Temporary chunker directory cleaned up.")
     
     # This is a temporary return value until the full pipeline is implemented
     return True, InternalWhisperResult(
-        text="Pipeline steps 1-4 (download, silence removal, diarization, preprocess) complete. More steps to follow.",
+        text="Pipeline steps 1-5 (download, silence removal, diarization, preprocess, chunking) complete. More steps to follow.",
         diarization=True, # Diarization was successful
         speaker_segments=speaker_segments,
         processing_metadata=ProcessingMetadata(
             filename=filename,
             processing_time_seconds=time.time() - start_time,
             transcription_method="mono",
-            chunk_method="TBD",
+            chunk_method=chunk_method,
+            total_chunks=len(audio_chunks),
             original_audio_info=audio_info,
             preprocessed_audio_info=preprocessed_audio_info,
             has_speaker_alignment=True
