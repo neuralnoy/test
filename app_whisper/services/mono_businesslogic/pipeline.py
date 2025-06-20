@@ -12,6 +12,7 @@ from app_whisper.services.businesslogic.audio_downloader import AudioFileDownloa
 from app_whisper.services.mono_businesslogic.audio_preprocessor import AudioPreprocessor
 from app_whisper.services.mono_businesslogic.audio_diarizer import AudioDiarizer
 from app_whisper.services.mono_businesslogic.audio_chunker import AudioChunker
+from app_whisper.services.mono_businesslogic.audio_transcriber import WhisperTranscriber
 import time
 
 logger = get_logger("businesslogic")
@@ -64,7 +65,7 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
     3. Perform diarization according to the energy of the channels and inertia (audio_diarizer)
     4. Preprocess the audio to 16kHz (if not already 16kHz) and convert to mono. Then convert to .flac. (audio_preprocessor)
     5. Chunk the audio into smaller chunks (audio_chunker)
-    6. Parallel Whisper Transcription for mono audio chunks(audio_transcriber)
+    6. Parallel Whisper Transcription for mono audio chunks
     7. Apply diarization to the transcription (audio_postprocessor)
     8. Post-Processing & Final Assembly (audio_postprocessor)
     9. Cleanup temporary files (audio_postprocessor)
@@ -205,6 +206,36 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         chunk_method = "size_based" if len(audio_chunks) > 1 else "direct"
         logger.info(f"Audio chunking complete. Created {len(audio_chunks)} chunk(s) using '{chunk_method}' method.")
 
+        # 6. Parallel Whisper Transcription for mono audio chunks
+        logger.info("Starting parallel Whisper transcription step.")
+        transcriber = WhisperTranscriber()
+        transcribed_chunks = await transcriber.transcribe_chunks(audio_chunks, language=None)
+
+        failed_chunks = [tc for tc in transcribed_chunks if tc.error]
+        if len(failed_chunks) == len(audio_chunks):
+            logger.error(f"All {len(audio_chunks)} transcription chunks failed for {filename}.")
+            first_error = failed_chunks[0].error if failed_chunks else "Unknown transcription failure."
+            return False, InternalWhisperResult(
+                text=f"Transcription failed for all chunks: {first_error}",
+                diarization=True,
+                speaker_segments=speaker_segments,
+                processing_metadata=ProcessingMetadata(
+                    filename=filename,
+                    processing_time_seconds=time.time() - start_time,
+                    transcription_method="failed_transcription",
+                    chunk_method=chunk_method,
+                    total_chunks=len(audio_chunks),
+                    original_audio_info=audio_info,
+                    preprocessed_audio_info=preprocessed_audio_info,
+                    has_speaker_alignment=True
+                )
+            )
+
+        if failed_chunks:
+            logger.warning(f"{len(failed_chunks)} out of {len(audio_chunks)} chunks failed to transcribe, but proceeding with successful ones.")
+
+        logger.info("Successfully transcribed audio chunks.")
+
         # Placeholder for subsequent steps
         pass
 
@@ -221,7 +252,7 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
     
     # This is a temporary return value until the full pipeline is implemented
     return True, InternalWhisperResult(
-        text="Pipeline steps 1-5 (download, silence removal, diarization, preprocess, chunking) complete. More steps to follow.",
+        text="Pipeline steps 1-6 (download, silence removal, diarization, preprocess, chunking, transcription) complete. More steps to follow.",
         diarization=True, # Diarization was successful
         speaker_segments=speaker_segments,
         processing_metadata=ProcessingMetadata(
