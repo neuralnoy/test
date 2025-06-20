@@ -1,0 +1,153 @@
+"""
+Audio File Downloader for Azure Blob Storage.
+Downloads audio files from blob storage using the filename as blob name.
+"""
+import os
+import tempfile
+from typing import Tuple, Optional
+from common_new.blob_storage import AsyncBlobStorageDownloader
+from common_new.logger import get_logger
+
+logger = get_logger("businesslogic")
+
+class AudioFileDownloader:
+    """Downloads audio files from Azure Blob Storage."""
+    
+    def __init__(self, container_name: Optional[str] = None):
+        """
+        Initialize the downloader.
+        
+        Args:
+            container_name: Azure blob container name (if None, will use env var)
+        """
+        # Azure Storage configuration
+        self.account_url = os.getenv("APP_BLOB_ACCOUNT_NAME")
+        self.container_name = os.getenv("WHISPER_AUDIO_CONTAINER", "fla-data-container")
+        
+        # Initialize blob downloader
+        self.blob_service = AsyncBlobStorageDownloader(
+            account_url=f"https://{self.account_url}.blob.core.windows.net",
+            container_name=self.container_name
+        )
+        
+        # Create temp directory for downloads
+        self.temp_dir = tempfile.mkdtemp(prefix="whisper_downloads_")
+        logger.info(f"Initialized AudioFileDownloader with container: {self.container_name}")
+        logger.info(f"Using temp directory: {self.temp_dir}")
+    
+    async def download_audio_file(self, filename: str) -> Tuple[bool, str, str]:
+        """
+        Download audio file from blob storage.
+        
+        Args:
+            filename: The filename/blob name to download
+            
+        Returns:
+            Tuple[bool, str, str]: (success, local_file_path, error_message)
+        """
+        try:
+            logger.info(f"Starting download of audio file: {filename}")
+            
+            # Ensure the filename has a valid audio extension
+            if not self._is_valid_audio_file(filename):
+                error_msg = f"Invalid audio file format: {filename}"
+                logger.error(error_msg)
+                return False, "", error_msg
+            
+            # Create local file path
+            local_file_path = os.path.join(self.temp_dir, filename)
+            
+            # Initialize downloader if needed
+            await self.blob_service.initialize()
+            
+            # Download from blob storage
+            downloaded_path = await self.blob_service.download_file(
+                blob_name=filename,
+                local_file_path=local_file_path
+            )
+            success = downloaded_path is not None
+            
+            if success:
+                # Verify file was downloaded and has content
+                if os.path.exists(local_file_path) and os.path.getsize(local_file_path) > 0:
+                    file_size_mb = os.path.getsize(local_file_path) / (1024 * 1024)
+                    logger.info(f"Successfully downloaded {filename} ({file_size_mb:.2f} MB) to {local_file_path}")
+                    return True, local_file_path, ""
+                else:
+                    error_msg = f"Downloaded file is empty or doesn't exist: {local_file_path}"
+                    logger.error(error_msg)
+                    return False, "", error_msg
+            else:
+                error_msg = f"Failed to download {filename} from blob storage"
+                logger.error(error_msg)
+                return False, "", error_msg
+                
+        except Exception as e:
+            error_msg = f"Error downloading audio file {filename}: {str(e)}"
+            logger.error(error_msg)
+            return False, "", error_msg
+    
+    def _is_valid_audio_file(self, filename: str) -> bool:
+        """
+        Check if filename has a valid audio extension.
+        
+        Args:
+            filename: The filename to check
+            
+        Returns:
+            bool: True if valid audio file extension
+        """
+        valid_extensions = {'.wav', '.mp3', '.mp4', '.mpeg', '.mpga', '.m4a', '.webm', '.flac'}
+        file_extension = os.path.splitext(filename)[1].lower()
+        return file_extension in valid_extensions
+    
+    def verify_stereo_format(self, file_path: str) -> Tuple[bool, dict]:
+        """
+        Verify that the audio file is in stereo format (2 channels).
+        
+        Args:
+            file_path: Path to the audio file
+            
+        Returns:
+            Tuple[bool, dict]: (is_stereo, audio_info)
+        """
+        try:
+            import soundfile as sf
+            
+            # Get audio file info
+            info = sf.info(file_path)
+            
+            audio_info = {
+                'channels': info.channels,
+                'sample_rate': info.samplerate,
+                'duration': info.frames / info.samplerate,
+                'format': info.format,
+                'subtype': info.subtype
+            }
+            
+            is_stereo = info.channels == 2
+            
+            if is_stereo:
+                logger.info(f"Audio file verified as stereo: {audio_info}")
+            else:
+                logger.warning(f"Audio file is not stereo ({info.channels} channels): {audio_info}")
+            
+            return is_stereo, audio_info
+            
+        except Exception as e:
+            logger.error(f"Error verifying audio format for {file_path}: {str(e)}")
+            return False, {}
+    
+    def cleanup(self):
+        """Clean up temporary downloaded files."""
+        try:
+            import shutil
+            if os.path.exists(self.temp_dir):
+                shutil.rmtree(self.temp_dir)
+                logger.info(f"Cleaned up temporary directory: {self.temp_dir}")
+        except Exception as e:
+            logger.error(f"Error cleaning up temp directory {self.temp_dir}: {str(e)}")
+    
+    def __del__(self):
+        """Cleanup on object destruction."""
+        self.cleanup()

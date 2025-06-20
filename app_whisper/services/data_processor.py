@@ -1,7 +1,7 @@
 import json
 from common_new.logger import get_logger
 from app_whisper.models.schemas import InputWhisper, OutputWhisper
-from app_whisper.services.businesslogic.pipeline import run_pipeline
+from app_whisper.services.mono_businesslogic.pipeline import run_pipeline
 
 logger = get_logger("services")
 
