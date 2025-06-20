@@ -15,6 +15,8 @@ from app_whisper.services.mono_businesslogic.audio_chunker import AudioChunker
 from app_whisper.services.mono_businesslogic.audio_transcriber import WhisperTranscriber
 from app_whisper.services.mono_businesslogic.audio_postprocessor import TranscriptionPostProcessor
 import time
+import psutil
+import os
 
 logger = get_logger("businesslogic")
 
@@ -78,23 +80,28 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         Tuple[bool, InternalWhisperResult]: (success, result)
     """
     start_time = time.time()
+    process = psutil.Process(os.getpid())
     downloader = None
     preprocessor = None
     chunker = None
     try:
+        start_mem_mb = process.memory_info().rss / (1024 * 1024)
         # 1. Download Audio File and verify stereo
-        logger.info(f"Starting pipeline for file: {filename}")
+        logger.info(f"Starting pipeline for file: {filename}. Initial memory: {start_mem_mb:.2f} MB")
         downloader = AudioFileDownloader()
         success, local_file_path, error_msg = await downloader.download_audio_file(filename)
 
         if not success:
             logger.error(f"Failed to download audio file {filename}: {error_msg}")
+            processing_time = time.time() - start_time
+            end_mem_mb = process.memory_info().rss / (1024 * 1024)
+            logger.error(f"Pipeline failed for {filename}. Duration: {processing_time:.2f}s. Final memory: {end_mem_mb:.2f} MB.")
             return False, InternalWhisperResult(
                 text=f"Failed to download audio file: {error_msg}",
                 diarization=False,
                 processing_metadata=ProcessingMetadata(
                     filename=filename,
-                    processing_time_seconds=time.time() - start_time,
+                    processing_time_seconds=processing_time,
                     transcription_method="failed_download",
                     chunk_method="none"
                 )
@@ -105,12 +112,15 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         is_stereo, audio_info = downloader.verify_stereo_format(local_file_path)
         if not is_stereo:
             logger.error(f"Audio file {filename} is not in stereo format, which is required for this pipeline.")
+            processing_time = time.time() - start_time
+            end_mem_mb = process.memory_info().rss / (1024 * 1024)
+            logger.error(f"Pipeline failed for {filename}. Duration: {processing_time:.2f}s. Final memory: {end_mem_mb:.2f} MB.")
             return False, InternalWhisperResult(
                 text="Audio file is not stereo.",
                 diarization=False,
                 processing_metadata=ProcessingMetadata(
                     filename=filename,
-                    processing_time_seconds=time.time() - start_time,
+                    processing_time_seconds=processing_time,
                     transcription_method="failed_preprocess",
                     chunk_method="none",
                     original_audio_info=audio_info
@@ -124,12 +134,15 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
 
         if not success:
             logger.error(f"Failed to remove silence from {filename}: {error_msg}")
+            processing_time = time.time() - start_time
+            end_mem_mb = process.memory_info().rss / (1024 * 1024)
+            logger.error(f"Pipeline failed for {filename}. Duration: {processing_time:.2f}s. Final memory: {end_mem_mb:.2f} MB.")
             return False, InternalWhisperResult(
                 text=f"Failed during silence removal: {error_msg}",
                 diarization=False,
                 processing_metadata=ProcessingMetadata(
                     filename=filename,
-                    processing_time_seconds=time.time() - start_time,
+                    processing_time_seconds=processing_time,
                     transcription_method="failed_preprocess",
                     chunk_method="none",
                     original_audio_info=audio_info
@@ -145,12 +158,15 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
 
         if not success:
             logger.error(f"Failed to diarize {filename}: {error_msg}")
+            processing_time = time.time() - start_time
+            end_mem_mb = process.memory_info().rss / (1024 * 1024)
+            logger.error(f"Pipeline failed for {filename}. Duration: {processing_time:.2f}s. Final memory: {end_mem_mb:.2f} MB.")
             return False, InternalWhisperResult(
                 text=f"Failed during diarization: {error_msg}",
                 diarization=False,
                 processing_metadata=ProcessingMetadata(
                     filename=filename,
-                    processing_time_seconds=time.time() - start_time,
+                    processing_time_seconds=processing_time,
                     transcription_method="failed_diarization",
                     chunk_method="none",
                     original_audio_info=audio_info
@@ -165,13 +181,16 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
 
         if not success:
             logger.error(f"Failed to preprocess audio for {filename}: {error_msg}")
+            processing_time = time.time() - start_time
+            end_mem_mb = process.memory_info().rss / (1024 * 1024)
+            logger.error(f"Pipeline failed for {filename}. Duration: {processing_time:.2f}s. Final memory: {end_mem_mb:.2f} MB.")
             return False, InternalWhisperResult(
                 text=f"Failed during preprocessing (mono/flac): {error_msg}",
                 diarization=True,
                 speaker_segments=speaker_segments,
                 processing_metadata=ProcessingMetadata(
                     filename=filename,
-                    processing_time_seconds=time.time() - start_time,
+                    processing_time_seconds=processing_time,
                     transcription_method="failed_preprocess",
                     chunk_method="none",
                     original_audio_info=audio_info,
@@ -188,6 +207,9 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
 
         if not audio_chunks:
             logger.error(f"Audio chunking failed for {filename}. No chunks were produced.")
+            processing_time = time.time() - start_time
+            end_mem_mb = process.memory_info().rss / (1024 * 1024)
+            logger.error(f"Pipeline failed for {filename}. Duration: {processing_time:.2f}s. Final memory: {end_mem_mb:.2f} MB.")
             # This is a critical failure, but let's create a specific error message
             return False, InternalWhisperResult(
                 text="Failed during audio chunking: no chunks created.",
@@ -195,7 +217,7 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
                 speaker_segments=speaker_segments,
                 processing_metadata=ProcessingMetadata(
                     filename=filename,
-                    processing_time_seconds=time.time() - start_time,
+                    processing_time_seconds=processing_time,
                     transcription_method="failed_chunking",
                     chunk_method="size_based",
                     original_audio_info=audio_info,
@@ -215,6 +237,9 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
         failed_chunks = [tc for tc in transcribed_chunks if tc.error]
         if len(failed_chunks) == len(audio_chunks):
             logger.error(f"All {len(audio_chunks)} transcription chunks failed for {filename}.")
+            processing_time = time.time() - start_time
+            end_mem_mb = process.memory_info().rss / (1024 * 1024)
+            logger.error(f"Pipeline failed for {filename}. Duration: {processing_time:.2f}s. Final memory: {end_mem_mb:.2f} MB.")
             first_error = failed_chunks[0].error if failed_chunks else "Unknown transcription failure."
             return False, InternalWhisperResult(
                 text=f"Transcription failed for all chunks: {first_error}",
@@ -222,7 +247,7 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
                 speaker_segments=speaker_segments,
                 processing_metadata=ProcessingMetadata(
                     filename=filename,
-                    processing_time_seconds=time.time() - start_time,
+                    processing_time_seconds=processing_time,
                     transcription_method="failed_transcription",
                     chunk_method=chunk_method,
                     total_chunks=len(audio_chunks),
@@ -248,7 +273,9 @@ async def run_pipeline(filename: str) -> Tuple[bool, InternalWhisperResult]:
             logger.warning(f"Post-processing for {filename} resulted in an empty transcript.")
 
         processing_time = time.time() - start_time
-        logger.info(f"Pipeline completed for {filename} in {processing_time:.2f} seconds.")
+        end_mem_mb = process.memory_info().rss / (1024 * 1024)
+        mem_used_mb = end_mem_mb - start_mem_mb
+        logger.info(f"Pipeline completed for {filename} in {processing_time:.2f} seconds. Memory used: {mem_used_mb:.2f} MB (End: {end_mem_mb:.2f} MB).")
 
     finally:
         if downloader:
