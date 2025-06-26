@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from common_new.service_bus import AsyncServiceBusHandler
 from common_new.logger import get_logger
+from common_new.pom_reader import get_pom_version
 from app_feedbackform.services.data_processor import process_data
 
 logger = get_logger("feedback_form_app")
@@ -90,6 +91,7 @@ app = FastAPI(title="Feedback Form Processor", lifespan=lifespan)
 def read_root():
     return {
         "app": "Feedback Form Processor",
+        "version": get_pom_version(),
         "status": "running",
         "auth_type": "Default Azure Credential",
         "queues": {

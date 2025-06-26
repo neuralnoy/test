@@ -1,0 +1,5 @@
+<parent>
+    <groupId>com.ubs.fla.analytics</groupId>
+    <artifactId>python-parent</artifactId>
+    <version>0.2.142-SNAPSHOT</version>
+</parent> 

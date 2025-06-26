@@ -3,6 +3,7 @@ import asyncio
 from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
 from common_new.logger import get_logger
+from common_new.pom_reader import get_pom_version
 from app_counter.services.token_counter import TokenCounter
 from app_counter.services.rate_counter import RateCounter
 from app_counter.services.embedding_token_counter import EmbeddingTokenCounter
@@ -121,6 +122,7 @@ def read_root():
     logger.info(f"CONFIG: token_limit={TOKEN_LIMIT_PER_MINUTE}, embedding_token_limit={EMBEDDING_TOKEN_LIMIT_PER_MINUTE}, rate_limit={RATE_LIMIT_PER_MINUTE}, embedding_rate_limit={EMBEDDING_RATE_LIMIT_PER_MINUTE}, whisper_rate_limit={WHISPER_RATE_LIMIT_PER_MINUTE}")
     return {
         "app": "OpenAI Token Counter",
+        "version": get_pom_version(),
         "status": "running",
         "token_limit_per_minute": TOKEN_LIMIT_PER_MINUTE,
         "embedding_token_limit_per_minute": EMBEDDING_TOKEN_LIMIT_PER_MINUTE,

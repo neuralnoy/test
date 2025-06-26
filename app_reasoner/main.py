@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from common_new.service_bus import AsyncServiceBusHandler
 from common_new.logger import get_logger, shutdown_logging
+from common_new.pom_reader import get_pom_version
 from app_reasoner.services.data_processor import process_data
 
 logger = get_logger("reasoner_app")
@@ -93,6 +94,7 @@ app = FastAPI(title="Reasoner", lifespan=lifespan)
 def read_root():
     return {
         "app": "Reasoner",
+        "version": get_pom_version(),
         "status": "running",
         "auth_type": "Default Azure Credential",
         "queues": {
