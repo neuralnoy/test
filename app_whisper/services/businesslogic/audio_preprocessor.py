@@ -54,7 +54,7 @@ class AudioPreprocessor:
             channel_info_list = []
             
             for channel_id, channel_data in [("left", left_channel), ("right", right_channel)]:
-                speaker_id = "Speaker_1" if channel_id == "left" else "Speaker_2"
+                speaker_id = "Speaker_2" if channel_id == "left" else "Speaker_1"
                 
                 logger.info(f"Step 2b: Processing {channel_id} channel ({speaker_id})")
                 
