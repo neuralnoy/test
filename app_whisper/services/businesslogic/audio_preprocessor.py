@@ -5,7 +5,7 @@ Handles stereo channel splitting, resampling, and FLAC format conversion.
 import os
 import tempfile
 import numpy as np
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, Optional
 from app_whisper.models.schemas import ChannelInfo
 from common_new.logger import get_logger
 
@@ -47,6 +47,12 @@ class AudioPreprocessor:
             # Trim silence from both channels simultaneously before splitting
             trimmed_audio_data = self._trim_silence_from_stereo(audio_data, sample_rate)
             
+            if trimmed_audio_data is None:
+                # This audio was determined to be all silent.
+                error_msg = "Audio appears to be all silent."
+                logger.warning(f"{error_msg} Halting processing for {audio_file_path}.")
+                return False, [], error_msg
+
             # Split into left and right channels (Speaker 1 & Speaker 2)
             left_channel, right_channel = self._split_stereo_channels(trimmed_audio_data)
             
@@ -90,7 +96,7 @@ class AudioPreprocessor:
             logger.error(error_msg)
             return False, [], error_msg
     
-    def _trim_silence_from_stereo(self, audio_data: np.ndarray, sample_rate: int, silence_threshold: float = 0.01, min_sound_duration_ms: int = 100) -> np.ndarray:
+    def _trim_silence_from_stereo(self, audio_data: np.ndarray, sample_rate: int, silence_threshold: float = 0.01, min_sound_duration_ms: int = 100) -> Optional[np.ndarray]:
         """
         Trims silence from the beginning and end of a stereo audio signal
         based on the combined energy of both channels.
@@ -113,8 +119,7 @@ class AudioPreprocessor:
         non_silent_indices = np.where(energy > silence_threshold**2)[0]
         
         if len(non_silent_indices) == 0:
-            logger.warning("Audio appears to be all silent, returning original audio.")
-            return audio_data
+            return None
             
         start_frame = non_silent_indices[0]
         end_frame = non_silent_indices[-1]
