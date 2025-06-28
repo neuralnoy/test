@@ -1,5 +1,6 @@
 import os
 import asyncio
+from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Request
 from contextlib import asynccontextmanager
 from common_new.logger import get_logger
@@ -25,6 +26,8 @@ from app_counter.models.schemas import (
 )
 
 logger = get_logger("counter")
+
+start_time = datetime.now(timezone.utc)
 
 # Get token limit from environment variables or use default
 TOKEN_LIMIT_PER_MINUTE = int(os.getenv("APP_TPM_QUOTA", "128000"))
@@ -124,6 +127,7 @@ def read_root():
         "app": "OpenAI Token Counter",
         "version": get_pom_version(),
         "status": "running",
+        "start_time": start_time.isoformat(),
         "token_limit_per_minute": TOKEN_LIMIT_PER_MINUTE,
         "embedding_token_limit_per_minute": EMBEDDING_TOKEN_LIMIT_PER_MINUTE,
         "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,

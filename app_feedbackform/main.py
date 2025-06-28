@@ -1,6 +1,7 @@
 import os
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from fastapi import FastAPI
 from common_new.service_bus import AsyncServiceBusHandler
 from common_new.logger import get_logger
@@ -8,6 +9,8 @@ from common_new.pom_reader import get_pom_version
 from app_feedbackform.services.data_processor import process_data
 
 logger = get_logger("feedback_form_app")
+
+start_time = datetime.now(timezone.utc)
 
 # Get service bus connection details from environment variables
 FULLY_QUALIFIED_NAMESPACE = os.getenv("SERVICE_BUS_NAMESPACE")
@@ -93,6 +96,7 @@ def read_root():
         "app": "Feedback Form Processor",
         "version": get_pom_version(),
         "status": "running",
+        "start_time": start_time.isoformat(),
         "auth_type": "Default Azure Credential",
         "queues": {
             "in": IN_QUEUE_NAME,
