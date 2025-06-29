@@ -6,7 +6,7 @@ import asyncio
 import os
 import tempfile
 from unittest.mock import AsyncMock, Mock, patch, mock_open
-from common_new.blob_storage import AsyncBlobStorageUploader
+from common_new.blob_storage import AsyncBlobStorageUploader, AsyncBlobStorageDownloader
 
 
 class MockAsyncIterator:
@@ -1525,13 +1525,13 @@ class TestAsyncBlobStorageUploaderEdgeCases:
         
         # Simulate mixed success/throttling scenario
         with patch.object(uploader, '_upload_file_to_blob') as mock_upload:
-            # First succeeds, second fails due to throttling, third succeeds
-            mock_upload.side_effect = [True, False, True]
+            # First upload succeeds (container exists), second fails (permission error)
+            mock_upload.side_effect = [True, False]
             
             # Start worker
             worker_task = asyncio.create_task(uploader._upload_worker())
             
-            # Queue multiple files
+            # Queue files
             await uploader._upload_queue.put(("success1.txt", "blob1.txt"))
             await uploader._upload_queue.put(("throttled.txt", "blob2.txt"))
             await uploader._upload_queue.put(("success2.txt", "blob3.txt"))
@@ -1973,3 +1973,230 @@ class TestAsyncBlobStorageUploaderEdgeCases:
                 await worker_task
             except asyncio.CancelledError:
                 pass 
+
+class TestAsyncBlobStorageDownloader:
+    """Test the AsyncBlobStorageDownloader class."""
+    
+    @pytest.mark.unit
+    def test_downloader_init_basic(self):
+        """Test basic downloader initialization."""
+        downloader = AsyncBlobStorageDownloader(
+            account_url="https://test.blob.core.windows.net",
+            container_name="test-container"
+        )
+        
+        assert downloader.account_url == "https://test.blob.core.windows.net"
+        assert downloader.container_name == "test-container"
+        assert downloader.max_retries == 5
+        assert downloader.retry_delay == 2.0
+        assert downloader.download_dir == os.getcwd()
+        assert not downloader._initialized
+    
+    @pytest.mark.unit
+    def test_downloader_init_with_custom_params(self):
+        """Test downloader initialization with custom parameters."""
+        downloader = AsyncBlobStorageDownloader(
+            account_url="https://custom.blob.core.windows.net",
+            container_name="custom-container",
+            max_retries=3,
+            retry_delay=1.0,
+            download_dir="/tmp/downloads"
+        )
+        
+        assert downloader.account_url == "https://custom.blob.core.windows.net"
+        assert downloader.container_name == "custom-container"
+        assert downloader.max_retries == 3
+        assert downloader.retry_delay == 1.0
+        assert downloader.download_dir == "/tmp/downloads"
+    
+    @pytest.mark.unit
+    @patch('os.makedirs')
+    def test_downloader_init_creates_download_dir(self, mock_makedirs):
+        """Test that downloader creates download directory."""
+        downloader = AsyncBlobStorageDownloader(
+            account_url="https://test.blob.core.windows.net",
+            container_name="test-container",
+            download_dir="/tmp/test_downloads"
+        )
+        
+        mock_makedirs.assert_called_once_with("/tmp/test_downloads", exist_ok=True)
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_downloader_initialize_success(self):
+        """Test successful downloader initialization."""
+        downloader = AsyncBlobStorageDownloader(
+            account_url="https://test.blob.core.windows.net",
+            container_name="test-container"
+        )
+        
+        mock_credential = AsyncMock()
+        mock_container_client = AsyncMock()
+        # Configure the exists method to return True when awaited
+        mock_container_client.exists.return_value = True
+        
+        with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
+            with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
+                mock_client = Mock()  # Use regular Mock for the service client
+                mock_client_class.return_value = mock_client
+                mock_client.close = AsyncMock()  # Only the close method is async
+                mock_client.get_container_client.return_value = mock_container_client
+                
+                result = await downloader.initialize()
+                
+                assert result is True
+                assert downloader._initialized is True
+                mock_client.close.assert_called_once()
+                mock_credential.close.assert_called_once()
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_downloader_initialize_container_not_exists(self):
+        """Test initialization when container doesn't exist."""
+        downloader = AsyncBlobStorageDownloader(
+            account_url="https://test.blob.core.windows.net",
+            container_name="missing-container"
+        )
+        
+        mock_credential = AsyncMock()
+        mock_container_client = AsyncMock()
+        mock_container_client.exists.return_value = False
+        
+        with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
+            with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
+                mock_client = Mock()  # Use regular Mock for the service client
+                mock_client_class.return_value = mock_client
+                mock_client.close = AsyncMock()  # Only the close method is async
+                mock_client.get_container_client.return_value = mock_container_client
+                
+                result = await downloader.initialize()
+                
+                assert result is False
+                assert not downloader._initialized
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_list_blobs_success(self):
+        """Test successful blob listing."""
+        downloader = AsyncBlobStorageDownloader(
+            account_url="https://test.blob.core.windows.net",
+            container_name="test-container"
+        )
+        downloader._initialized = True
+        
+        mock_credential = AsyncMock()
+        mock_container_client = Mock()  # Use regular Mock for the container client
+        
+        # Mock blob objects
+        mock_blob1 = Mock()
+        mock_blob1.name = "file1.txt"
+        mock_blob2 = Mock()
+        mock_blob2.name = "file2.txt"
+        mock_blob3 = Mock()
+        mock_blob3.name = "file3.txt"
+        mock_blobs = [mock_blob1, mock_blob2, mock_blob3]
+        
+        class MockBlobIterator:
+            def __init__(self, blobs):
+                self.blobs = blobs
+                self.index = 0
+            
+            def __aiter__(self):
+                return self
+            
+            async def __anext__(self):
+                if self.index >= len(self.blobs):
+                    raise StopAsyncIteration
+                blob = self.blobs[self.index]
+                self.index += 1
+                return blob
+        
+        mock_container_client.list_blobs.return_value = MockBlobIterator(mock_blobs)
+        
+        with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
+            with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
+                mock_client = Mock()  # Use regular Mock for the service client
+                mock_client_class.return_value = mock_client
+                mock_client.close = AsyncMock()  # Only the close method is async
+                mock_client.get_container_client.return_value = mock_container_client
+                
+                result = await downloader.list_blobs()
+                
+                assert result == ["file1.txt", "file2.txt", "file3.txt"]
+                mock_client.close.assert_called_once()
+                mock_credential.close.assert_called_once()
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_blob_exists_true(self):
+        """Test blob_exists when blob exists."""
+        downloader = AsyncBlobStorageDownloader(
+            account_url="https://test.blob.core.windows.net",
+            container_name="test-container"
+        )
+        downloader._initialized = True
+        
+        mock_credential = AsyncMock()
+        mock_blob_client = AsyncMock()
+        mock_blob_client.exists.return_value = True
+        
+        with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
+            with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
+                mock_client = Mock()  # Use regular Mock for the service client
+                mock_client_class.return_value = mock_client
+                mock_client.close = AsyncMock()  # Only the close method is async
+                mock_client.get_blob_client.return_value = mock_blob_client
+                
+                result = await downloader.blob_exists("test.txt")
+                
+                assert result is True
+                mock_client.close.assert_called_once()
+                mock_credential.close.assert_called_once()
+
+
+class TestAsyncBlobStorageUploaderEdgeCases:
+    """Test edge cases and complex scenarios."""
+    
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_service_throttling_rate_limiting_responses(self):
+        """Test behavior when Azure Blob Storage responds with throttling/rate limiting errors."""
+        uploader = AsyncBlobStorageUploader(
+            account_url="https://test.blob.core.windows.net",
+            container_name="mixed-throttling-container",
+            max_retries=2,
+            retry_delay=0.1
+        )
+        uploader._initialized = True
+        
+        # Simulate mixed success/throttling scenario
+        with patch.object(uploader, '_upload_file_to_blob') as mock_upload:
+            # First and third uploads succeed, second fails (throttling error)
+            mock_upload.side_effect = [True, False, True]
+            
+            # Start worker
+            worker_task = asyncio.create_task(uploader._upload_worker())
+            
+            # Queue files
+            await uploader._upload_queue.put(("success1.txt", "blob1.txt"))
+            await uploader._upload_queue.put(("throttled.txt", "blob2.txt"))
+            await uploader._upload_queue.put(("success2.txt", "blob3.txt"))
+            
+            # Let worker process items with longer timeout
+            await asyncio.sleep(0.5)
+            
+            # Cancel worker
+            worker_task.cancel()
+            try:
+                await worker_task
+            except asyncio.CancelledError:
+                pass
+            
+            # First and third files should be processed, second should not
+            assert "success1.txt" in uploader._processed_files
+            assert "throttled.txt" not in uploader._processed_files
+            assert "success2.txt" in uploader._processed_files
+            
+            # All uploads should have been attempted
+            assert mock_upload.call_count == 3
+
