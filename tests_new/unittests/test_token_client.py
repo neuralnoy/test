@@ -7,6 +7,8 @@ import time
 from unittest.mock import patch
 from aioresponses import aioresponses
 from common_new.token_client import TokenClient
+import asyncio
+import aiohttp.web
 
 
 class TestTokenClientInit:
@@ -166,7 +168,7 @@ class TestTokenClientLockTokens:
             # Assert
             assert allowed is False
             assert request_id is None
-            assert "Client error: Connection error" in error
+            assert error == "Request failed"
     
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -188,7 +190,7 @@ class TestTokenClientLockTokens:
             # Assert
             assert allowed is False
             assert request_id is None
-            assert error == "Unknown error"
+            assert error == "Request failed"
 
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -256,7 +258,7 @@ class TestTokenClientLockTokens:
             # Assert
             assert allowed is False
             assert request_id is None
-            assert "Client error:" in error and "Expecting value" in error
+            assert error == "Request failed"
 
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -280,7 +282,7 @@ class TestTokenClientLockTokens:
             # Assert
             assert allowed is False
             assert request_id is None
-            assert "Client error:" in error and "unexpected mimetype" in error
+            assert error == "Request failed"
 
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -301,7 +303,7 @@ class TestTokenClientLockTokens:
             # Assert
             assert allowed is False
             assert request_id is None
-            assert "Client error:" in error and "timeout" in error.lower()
+            assert error == "Request failed"
 
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -322,7 +324,7 @@ class TestTokenClientLockTokens:
             # Assert
             assert allowed is False
             assert request_id is None
-            assert "Client error:" in error
+            assert error == "Request failed"
 
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -368,6 +370,24 @@ class TestTokenClientLockTokens:
             assert allowed is False
             assert request_id is None
             assert error == "Token count exceeds maximum"
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_tokens_retry_on_timeout(self):
+        """Test that the client retries on a timeout."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+
+        with aioresponses() as mock:
+            # Fail first time with timeout
+            mock.post("http://test.com/lock", exception=asyncio.TimeoutError())
+            # Succeed second time
+            mock.post("http://test.com/lock", payload={"allowed": True, "request_id": "req_123"})
+
+            allowed, request_id, error = await client.lock_tokens(100)
+
+            assert allowed is True
+            assert request_id == "req_123"
+            assert error is None
 
 
 class TestTokenClientReportUsage:
@@ -620,9 +640,10 @@ class TestTokenClientGetStatus:
             mock.get(
                 "http://test.com/status",
                 payload={
-                    "available_tokens": 1000,
-                    "used_tokens": 500,
-                    "available_requests": 100,
+                    "available_tokens": 100000,
+                    "used_tokens": 50000,
+                    "locked_tokens": 10000,
+                    "available_requests": 99,
                     "reset_time_seconds": 3600
                 },
                 status=200
@@ -634,9 +655,10 @@ class TestTokenClientGetStatus:
                 
                 # Assert
                 assert status is not None
-                assert status["available_tokens"] == 1000
-                assert status["used_tokens"] == 500
-                assert status["available_requests"] == 100
+                assert status["available_tokens"] == 100000
+                assert status["used_tokens"] == 50000
+                assert status["locked_tokens"] == 10000
+                assert status["available_requests"] == 99
                 assert status["reset_time_seconds"] == 3600
                 assert status["client_app_id"] == "test_app"
                 assert status["client_timestamp"] == 1234567890.0
@@ -685,22 +707,20 @@ class TestTokenClientGetStatus:
         """Test status retrieval with minimal response data."""
         # Arrange
         client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
+    
         with aioresponses() as mock:
             mock.get(
                 "http://test.com/status",
                 payload={},  # Empty response
                 status=200
             )
-            
+    
             with patch('time.time', return_value=1234567890.0):
                 # Act
                 status = await client.get_status()
-                
+    
                 # Assert
-                assert status is not None
-                assert status["client_app_id"] == "test_app"
-                assert status["client_timestamp"] == 1234567890.0
+                assert status is None
 
 
 class TestTokenClientLockEmbeddingTokens:
@@ -769,7 +789,7 @@ class TestTokenClientLockEmbeddingTokens:
             # Assert
             assert allowed is False
             assert request_id is None
-            assert "Client error: Connection error" in error
+            assert error == "Request failed"
     
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -791,7 +811,7 @@ class TestTokenClientLockEmbeddingTokens:
             # Assert
             assert allowed is False
             assert request_id is None
-            assert error == "Unknown error"
+            assert error == "Request failed"
 
 
 class TestTokenClientReportEmbeddingUsage:
@@ -854,6 +874,26 @@ class TestTokenClientReportEmbeddingUsage:
             # Assert
             assert result is False
 
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_report_embedding_usage_with_rate_request_id(self):
+        """Test successful embedding usage reporting with a composite request_id."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            mock.post("http://test.com/embedding/report", status=200)
+            result = await client.report_embedding_usage("emb_req_123:rate_456", 500)
+            assert result is True
+            mock.assert_called_once_with(
+                url="http://test.com/embedding/report",
+                method='POST',
+                json={
+                    'app_id': 'test_app',
+                    'request_id': 'emb_req_123',
+                    'rate_request_id': 'rate_456',
+                    'prompt_tokens': 500
+                }
+            )
+
 
 class TestTokenClientReleaseEmbeddingTokens:
     """Test the release_embedding_tokens method."""
@@ -896,251 +936,26 @@ class TestTokenClientReleaseEmbeddingTokens:
             # Assert
             assert result is False
 
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_release_embedding_tokens_with_rate_request_id(self):
+        """Test successful embedding token release with a composite request_id."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            mock.post("http://test.com/embedding/release", status=200)
 
-class TestTokenClientGetEmbeddingStatus:
-    """Test the get_embedding_status method."""
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_get_embedding_status_success(self):
-        """Test successful embedding status retrieval."""
-        # Arrange
-        client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
-        with aioresponses() as mock:
-            mock.get(
-                "http://test.com/embedding/status",
-                payload={
-                    "available_tokens": 50000,
-                    "used_tokens": 10000,
-                    "locked_tokens": 5000,
-                    "reset_time_seconds": 2400
-                },
-                status=200
-            )
-            
-            with patch('time.time', return_value=1234567890.0):
-                # Act
-                status = await client.get_embedding_status()
-                
-                # Assert
-                assert status is not None
-                assert status["available_tokens"] == 50000
-                assert status["used_tokens"] == 10000
-                assert status["locked_tokens"] == 5000
-                assert status["reset_time_seconds"] == 2400
-                assert status["client_app_id"] == "test_app"
-                assert status["client_timestamp"] == 1234567890.0
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_get_embedding_status_http_error(self):
-        """Test embedding status retrieval with HTTP error."""
-        # Arrange
-        client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
-        with aioresponses() as mock:
-            mock.get(
-                "http://test.com/embedding/status",
-                exception=Exception("Connection error")
-            )
-            
-            # Act
-            status = await client.get_embedding_status()
-            
-            # Assert
-            assert status is None
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_get_embedding_status_server_error(self):
-        """Test embedding status retrieval with server error response."""
-        # Arrange
-        client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
-        with aioresponses() as mock:
-            mock.get(
-                "http://test.com/embedding/status",
-                status=500
-            )
-            
-            # Act
-            status = await client.get_embedding_status()
-            
-            # Assert
-            assert status is None
+            result = await client.release_embedding_tokens("emb_req_123:rate_456")
 
-
-class TestTokenClientLockEmbeddingTokens:
-    """Test the lock_embedding_tokens method."""
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_lock_embedding_tokens_success(self):
-        """Test successful embedding token locking."""
-        # Arrange
-        client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
-        with aioresponses() as mock:
-            mock.post(
-                "http://test.com/embedding/lock",
-                payload={"allowed": True, "request_id": "emb_req_123"},
-                status=200
-            )
-            
-            # Act
-            allowed, request_id, error = await client.lock_embedding_tokens(1000)
-            
-            # Assert
-            assert allowed is True
-            assert request_id == "emb_req_123"
-            assert error is None
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_lock_embedding_tokens_denied(self):
-        """Test embedding token locking when request is denied."""
-        # Arrange
-        client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
-        with aioresponses() as mock:
-            mock.post(
-                "http://test.com/embedding/lock",
-                payload={"allowed": False, "message": "Embedding token limit exceeded"},
-                status=429
-            )
-            
-            # Act
-            allowed, request_id, error = await client.lock_embedding_tokens(1000)
-            
-            # Assert
-            assert allowed is False
-            assert request_id is None
-            assert error == "Embedding token limit exceeded"
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_lock_embedding_tokens_http_error(self):
-        """Test embedding token locking with HTTP error."""
-        # Arrange
-        client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
-        with aioresponses() as mock:
-            mock.post(
-                "http://test.com/embedding/lock",
-                exception=aiohttp.ClientError("Connection error")
-            )
-            
-            # Act
-            allowed, request_id, error = await client.lock_embedding_tokens(1000)
-            
-            # Assert
-            assert allowed is False
-            assert request_id is None
-            assert "Client error: Connection error" in error
-
-
-class TestTokenClientReportEmbeddingUsage:
-    """Test the report_embedding_usage method."""
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_report_embedding_usage_success(self):
-        """Test successful embedding usage reporting."""
-        # Arrange
-        client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
-        with aioresponses() as mock:
-            mock.post(
-                "http://test.com/embedding/report",
-                status=200
-            )
-            
-            # Act
-            result = await client.report_embedding_usage("emb_req_123", 500)
-            
-            # Assert
             assert result is True
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_report_embedding_usage_http_error(self):
-        """Test embedding usage reporting with HTTP error."""
-        # Arrange
-        client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
-        with aioresponses() as mock:
-            mock.post(
-                "http://test.com/embedding/report",
-                exception=aiohttp.ClientError("Connection error")
+            mock.assert_called_once_with(
+                url="http://test.com/embedding/release",
+                method='POST',
+                json={
+                    'app_id': 'test_app',
+                    'request_id': 'emb_req_123',
+                    'rate_request_id': 'rate_456'
+                }
             )
-            
-            # Act
-            result = await client.report_embedding_usage("emb_req_123", 500)
-            
-            # Assert
-            assert result is False
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_report_embedding_usage_server_error(self):
-        """Test embedding usage reporting with server error response."""
-        # Arrange
-        client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
-        with aioresponses() as mock:
-            mock.post(
-                "http://test.com/embedding/report",
-                status=500
-            )
-            
-            # Act
-            result = await client.report_embedding_usage("emb_req_123", 500)
-            
-            # Assert
-            assert result is False
-
-
-class TestTokenClientReleaseEmbeddingTokens:
-    """Test the release_embedding_tokens method."""
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_release_embedding_tokens_success(self):
-        """Test successful embedding token release."""
-        # Arrange
-        client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
-        with aioresponses() as mock:
-            mock.post(
-                "http://test.com/embedding/release",
-                status=200
-            )
-            
-            # Act
-            result = await client.release_embedding_tokens("emb_req_123")
-            
-            # Assert
-            assert result is True
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_release_embedding_tokens_http_error(self):
-        """Test embedding token release with HTTP error."""
-        # Arrange
-        client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
-        with aioresponses() as mock:
-            mock.post(
-                "http://test.com/embedding/release",
-                exception=Exception("Network error")
-            )
-            
-            # Act
-            result = await client.release_embedding_tokens("emb_req_123")
-            
-            # Assert
-            assert result is False
 
 
 class TestTokenClientGetEmbeddingStatus:
@@ -1222,22 +1037,20 @@ class TestTokenClientGetEmbeddingStatus:
         """Test embedding status retrieval with minimal response data."""
         # Arrange
         client = TokenClient(app_id="test_app", base_url="http://test.com")
-        
+    
         with aioresponses() as mock:
             mock.get(
                 "http://test.com/embedding/status",
                 payload={},  # Empty response
                 status=200
             )
-            
+    
             with patch('time.time', return_value=1234567890.0):
                 # Act
                 status = await client.get_embedding_status()
-                
+    
                 # Assert
-                assert status is not None
-                assert status["client_app_id"] == "test_app"
-                assert status["client_timestamp"] == 1234567890.0
+                assert status is None
 
 
 class TestTokenClientIntegration:
@@ -1286,40 +1099,143 @@ class TestTokenClientIntegration:
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_full_embedding_lifecycle(self):
-        """Test complete embedding token usage lifecycle."""
-        # Arrange
+        """Test the full lifecycle of locking, reporting, and releasing embedding tokens."""
         client = TokenClient(app_id="test_app", base_url="http://test.com")
         
         with aioresponses() as mock:
-            # Mock lock embedding tokens
-            mock.post(
-                "http://test.com/embedding/lock",
-                payload={"allowed": True, "request_id": "emb_req_123"},
-                status=200
-            )
+            # Lock
+            mock.post("http://test.com/embedding/lock", payload={"allowed": True, "request_id": "emb_req_789"})
+            allowed, request_id, _ = await client.lock_embedding_tokens(2000)
+            assert allowed and request_id == "emb_req_789"
             
-            # Mock report embedding usage
-            mock.post(
-                "http://test.com/embedding/report",
-                status=200
-            )
+            # Report
+            mock.post("http://test.com/embedding/report", status=200)
+            report_success = await client.report_embedding_usage(request_id, 1800)
+            assert report_success
             
-            # Mock release embedding tokens
-            mock.post(
-                "http://test.com/embedding/release",
-                status=200
-            )
-            
-            # Act - Lock embedding tokens
-            allowed, request_id, error = await client.lock_embedding_tokens(1000)
-            assert allowed is True
-            assert request_id == "emb_req_123"
-            
-            # Act - Report embedding usage
-            report_success = await client.report_embedding_usage(request_id, 950)
-            assert report_success is True
-            
-            # Act - Release embedding tokens (shouldn't be needed after report, but testing)
+            # Release (should not be needed if reported)
+            mock.post("http://test.com/embedding/release", status=200)
             release_success = await client.release_embedding_tokens(request_id)
-            assert release_success is True
-    
+            assert release_success
+
+
+class TestTokenClientWhisper:
+    """Test the Whisper rate limiting methods."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_whisper_rate_success(self):
+        """Test successful whisper rate locking."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            mock.post("http://test.com/whisper/lock", payload={"allowed": True, "request_id": "whisper_req_123"})
+            allowed, request_id, error = await client.lock_whisper_rate()
+            assert allowed is True
+            assert request_id == "whisper_req_123"
+            assert error is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_whisper_rate_denied(self):
+        """Test whisper rate locking when denied."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            mock.post("http://test.com/whisper/lock", payload={"allowed": False, "message": "Whisper rate limit exceeded"}, status=200)
+            allowed, request_id, error = await client.lock_whisper_rate()
+            assert allowed is False
+            assert request_id is None
+            assert error == "Whisper rate limit exceeded"
+            
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_whisper_rate_denied_no_message(self):
+        """Test whisper rate locking when denied with no message."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            mock.post("http://test.com/whisper/lock", payload={"allowed": False}, status=200)
+            allowed, request_id, error = await client.lock_whisper_rate()
+            assert allowed is False
+            assert request_id is None
+            assert error == "Whisper rate limit exceeded"
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_lock_whisper_rate_http_error(self):
+        """Test whisper rate locking with HTTP error."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            mock.post("http://test.com/whisper/lock", exception=aiohttp.ClientError("Connection error"))
+            allowed, request_id, error = await client.lock_whisper_rate()
+            assert allowed is False
+            assert request_id is None
+            assert error == "Request failed"
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_report_whisper_usage_success(self):
+        """Test successful whisper usage reporting."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            mock.post("http://test.com/whisper/report", status=200)
+            result = await client.report_whisper_usage("whisper_req_123")
+            assert result is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_report_whisper_usage_http_error(self):
+        """Test whisper usage reporting with HTTP error."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            mock.post("http://test.com/whisper/report", exception=aiohttp.ClientError("Connection error"))
+            result = await client.report_whisper_usage("whisper_req_123")
+            assert result is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_release_whisper_rate_success(self):
+        """Test successful whisper rate release."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            mock.post("http://test.com/whisper/release", status=200)
+            result = await client.release_whisper_rate("whisper_req_123")
+            assert result is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_release_whisper_rate_http_error(self):
+        """Test whisper rate release with HTTP error."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            mock.post("http://test.com/whisper/release", exception=aiohttp.ClientError("Connection error"))
+            result = await client.release_whisper_rate("whisper_req_123")
+            assert result is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_get_whisper_status_success(self):
+        """Test successful whisper status retrieval."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            payload = {
+                "available_requests": 10,
+                "reset_time_seconds": 50
+            }
+            mock.get("http://test.com/whisper/status", payload=payload)
+            with patch('time.time', return_value=1234567890.0):
+                status = await client.get_whisper_status()
+                assert status is not None
+                assert status["available_requests"] == 10
+                assert status["reset_time_seconds"] == 50
+                assert status["client_app_id"] == "test_app"
+                assert status["client_timestamp"] == 1234567890.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.unit
+    async def test_get_whisper_status_http_error(self):
+        """Test whisper status retrieval with HTTP error."""
+        client = TokenClient(app_id="test_app", base_url="http://test.com")
+        with aioresponses() as mock:
+            mock.get("http://test.com/whisper/status", exception=aiohttp.ClientError("Connection error"))
+            status = await client.get_whisper_status()
+            assert status is None
+
