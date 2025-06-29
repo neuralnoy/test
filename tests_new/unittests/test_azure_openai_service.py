@@ -8,7 +8,7 @@ from pydantic import BaseModel, ValidationError
 import os
 import tiktoken
 
-from common_new.azure_openai_service import AzureOpenAIService
+from common_new.azure_openai_service import AzureOpenAIService, AzureOpenAIServiceWhisper, WhisperTokenClientWrapper
 
 class _TestModel(BaseModel):
     """Test Pydantic model for structured output tests."""
@@ -523,4 +523,237 @@ class TestAzureOpenAIServiceIntegration:
                 messages = [{"role": "user", "content": "Hello"}]
                 
                 with pytest.raises(Exception, match="Token client error"):
-                    await service.structured_completion(_TestModel, messages) 
+                    await service.structured_completion(_TestModel, messages)
+
+class TestAzureOpenAIServiceWhisper:
+    """Tests for the AzureOpenAIServiceWhisper class."""
+
+    @pytest.fixture
+    def whisper_service(self):
+        """Fixture to create an AzureOpenAIServiceWhisper instance."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'whisper-1'
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIServiceWhisper(app_id="test-whisper-app")
+                yield service
+
+    def test_init(self, whisper_service):
+        """Test whisper service initialization."""
+        assert whisper_service.app_id == "test-whisper-app"
+        assert whisper_service.default_model == "whisper-1"
+
+    @patch('os.path.exists', return_value=True)
+    @patch('os.path.getsize', return_value=1024 * 1024) # 1MB
+    def test_validate_audio_file_success(self, mock_getsize, mock_exists, whisper_service):
+        """Test successful validation of a supported audio file."""
+        assert whisper_service.validate_audio_file("test.mp3") is True
+
+    @patch('os.path.exists', return_value=False)
+    def test_validate_audio_file_not_exists(self, mock_exists, whisper_service):
+        """Test validation fails if file does not exist."""
+        assert whisper_service.validate_audio_file("non_existent_file.mp3") is False
+
+    @patch('os.path.exists', return_value=True)
+    @patch('os.path.getsize', return_value=30 * 1024 * 1024) # 30MB
+    def test_validate_audio_file_too_large(self, mock_getsize, mock_exists, whisper_service):
+        """Test validation fails if file is larger than 25MB."""
+        assert whisper_service.validate_audio_file("large_file.wav") is False
+
+    @patch('os.path.exists', return_value=True)
+    @patch('os.path.getsize', return_value=1024 * 1024) # 1MB
+    def test_validate_audio_file_unsupported_format(self, mock_getsize, mock_exists, whisper_service):
+        """Test validation fails for unsupported file formats."""
+        assert whisper_service.validate_audio_file("test.txt") is False
+
+    @pytest.mark.asyncio
+    async def test_transcribe_audio_file_not_found(self, whisper_service):
+        """Test transcribe_audio raises FileNotFoundError for non-existent files."""
+        with patch('os.path.exists', return_value=False):
+            with pytest.raises(FileNotFoundError):
+                await whisper_service.transcribe_audio("non_existent.mp3")
+
+    @pytest.mark.asyncio
+    async def test_transcribe_audio_invalid_file(self, whisper_service):
+        """Test transcribe_audio raises ValueError for invalid audio files."""
+        with patch('os.path.exists', return_value=True):
+            with patch.object(whisper_service, 'validate_audio_file', return_value=False):
+                with pytest.raises(ValueError):
+                    await whisper_service.transcribe_audio("invalid_file.mp3")
+
+    @pytest.mark.asyncio
+    @patch("builtins.open", new_callable=MagicMock)
+    async def test_transcribe_audio_internal_success(self, mock_open, whisper_service):
+        """Test the internal audio transcription method successfully transcribes."""
+        mock_token_client = AsyncMock()
+        mock_token_client.lock_whisper_rate.return_value = (True, "req_whisper_123", "")
+        whisper_service.token_client = mock_token_client
+        
+        mock_audio_client = MagicMock()
+        mock_transcription = MagicMock()
+        mock_transcription.model_dump.return_value = {"text": "Hello world"}
+        mock_audio_client.audio.transcriptions.create.return_value = mock_transcription
+        
+        with patch.object(whisper_service, '_initialize_audio_client', return_value=mock_audio_client):
+            result = await whisper_service._transcribe_audio_internal("dummy.mp3")
+            
+            assert result == {"text": "Hello world"}
+            mock_token_client.lock_whisper_rate.assert_called_once()
+            mock_open.assert_called_once_with("dummy.mp3", "rb")
+            mock_audio_client.audio.transcriptions.create.assert_called_once()
+            mock_token_client.report_whisper_usage.assert_called_once_with("req_whisper_123")
+
+    @pytest.mark.asyncio
+    async def test_transcribe_audio_internal_rate_limit_denied(self, whisper_service):
+        """Test internal transcription raises ValueError when rate limit is denied."""
+        mock_token_client = AsyncMock()
+        mock_token_client.lock_whisper_rate.return_value = (False, None, "Rate limit exceeded")
+        whisper_service.token_client = mock_token_client
+        
+        with pytest.raises(ValueError, match="Whisper rate limit would be exceeded"):
+            await whisper_service._transcribe_audio_internal("dummy.mp3")
+        
+        mock_token_client.lock_whisper_rate.assert_called_once()
+        mock_token_client.release_whisper_rate.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("builtins.open", new_callable=MagicMock)
+    async def test_transcribe_audio_internal_api_error(self, mock_open, whisper_service):
+        """Test internal transcription handles API errors and releases rate slot."""
+        mock_token_client = AsyncMock()
+        mock_token_client.lock_whisper_rate.return_value = (True, "req_whisper_err", "")
+        whisper_service.token_client = mock_token_client
+
+        mock_audio_client = MagicMock()
+        mock_audio_client.audio.transcriptions.create.side_effect = Exception("API Error")
+
+        with patch.object(whisper_service, '_initialize_audio_client', return_value=mock_audio_client):
+            with pytest.raises(Exception, match="API Error"):
+                await whisper_service._transcribe_audio_internal("dummy.mp3")
+
+            mock_token_client.lock_whisper_rate.assert_called_once()
+            mock_token_client.release_whisper_rate.assert_called_once_with("req_whisper_err")
+
+    @pytest.mark.asyncio
+    async def test_transcribe_audio_with_retry(self, whisper_service):
+        """Test the backward compatibility of transcribe_audio_with_retry."""
+        with patch.object(whisper_service, 'transcribe_audio', new_callable=AsyncMock) as mock_transcribe:
+            await whisper_service.transcribe_audio_with_retry("dummy.mp3", some_arg="test")
+            mock_transcribe.assert_called_once_with("dummy.mp3", some_arg="test")
+            
+    def test_initialize_audio_client_once(self, whisper_service):
+        """Test that the audio client is only initialized once."""
+        with patch('common_new.azure_openai_service.AzureOpenAI') as mock_azure_openai:
+            client1 = whisper_service._initialize_audio_client()
+            client2 = whisper_service._initialize_audio_client()
+            
+            assert client1 is client2
+            mock_azure_openai.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_transcribe_audio_chunks_success(self, whisper_service):
+        """Test concurrent transcription of multiple audio chunks."""
+        audio_files = ["chunk1.mp3", "chunk2.mp3"]
+        expected_results = [{"text": "result1"}, {"text": "result2"}]
+        
+        with patch.object(whisper_service, 'transcribe_audio', new_callable=AsyncMock) as mock_transcribe:
+            mock_transcribe.side_effect = expected_results
+            
+            results = await whisper_service.transcribe_audio_chunks(audio_files)
+            
+            assert results == expected_results
+            assert mock_transcribe.call_count == 2
+            mock_transcribe.assert_any_call(audio_files[0])
+            mock_transcribe.assert_any_call(audio_files[1])
+
+    @pytest.mark.asyncio
+    async def test_transcribe_audio_chunks_with_failures(self, whisper_service):
+        """Test concurrent transcription with some chunks failing."""
+        audio_files = ["chunk1.mp3", "chunk2.mp3", "chunk3.mp3"]
+        side_effects = [
+            {"text": "result1"},
+            Exception("Transcription failed"),
+            {"text": "result3"}
+        ]
+        
+        with patch.object(whisper_service, 'transcribe_audio', new_callable=AsyncMock) as mock_transcribe:
+            mock_transcribe.side_effect = side_effects
+            
+            results = await whisper_service.transcribe_audio_chunks(audio_files)
+            
+            assert len(results) == 3
+            assert results[0] == {"text": "result1"}
+            assert "error" in results[1]
+            assert results[1]["error"] == "Transcription failed"
+            assert results[1]["file_path"] == "chunk2.mp3"
+            assert results[2] == {"text": "result3"}
+            
+    @pytest.mark.asyncio
+    @patch("asyncio.gather", new_callable=AsyncMock)
+    async def test_transcribe_audio_chunks_gather_exception(self, mock_gather, whisper_service):
+        """Test that transcribe_audio_chunks handles exceptions from asyncio.gather."""
+        mock_gather.side_effect = Exception("Gather failed")
+        
+        with pytest.raises(Exception, match="Gather failed"):
+            await whisper_service.transcribe_audio_chunks(["chunk1.mp3"])
+
+    @pytest.mark.asyncio
+    @patch("builtins.open", new_callable=MagicMock)
+    async def test_transcribe_audio_internal_non_json_response(self, mock_open, whisper_service):
+        """Test internal transcription with a non-json (text) response format."""
+        mock_token_client = AsyncMock()
+        mock_token_client.lock_whisper_rate.return_value = (True, "req_whisper_text", "")
+        whisper_service.token_client = mock_token_client
+
+        mock_audio_client = MagicMock()
+        # For non-json formats, the response is a simple string, not a model object
+        mock_audio_client.audio.transcriptions.create.return_value = "Hello world"
+        
+        with patch.object(whisper_service, '_initialize_audio_client', return_value=mock_audio_client):
+            result = await whisper_service._transcribe_audio_internal("dummy.mp3", response_format="text")
+            
+            assert result == {"text": "Hello world"}
+            mock_token_client.report_whisper_usage.assert_called_once_with("req_whisper_text")
+
+    @pytest.mark.asyncio
+    async def test_whisper_token_client_wrapper(self):
+        """Test the WhisperTokenClientWrapper."""
+        mock_token_client = AsyncMock()
+        wrapper = WhisperTokenClientWrapper(mock_token_client)
+        
+        await wrapper.get_status()
+        
+        mock_token_client.get_whisper_status.assert_called_once()
+
+class TestAzureOpenAIServiceCoverage:
+    """Extra tests to improve coverage."""
+    
+    @pytest.fixture
+    def service(self):
+        """Fixture for a basic AzureOpenAIService instance."""
+        with patch.dict(os.environ, {
+            'APP_OPENAI_API_VERSION': '2023-05-15',
+            'APP_OPENAI_API_BASE': 'https://test.openai.azure.com/',
+            'APP_OPENAI_ENGINE': 'gpt-4'
+        }):
+            with patch('common_new.azure_openai_service.TokenClient'):
+                service = AzureOpenAIService(app_id="coverage-app")
+                yield service
+
+    def test_get_encoding_for_model_exception(self, service):
+        """Test the exception handling in _get_encoding_for_model."""
+        with patch('tiktoken.encoding_for_model', side_effect=Exception("TIKTOKEN_ERROR")):
+            with patch('tiktoken.get_encoding') as mock_get_encoding:
+                service._get_encoding_for_model("any-model")
+                mock_get_encoding.assert_called_with("cl100k_base")
+
+    @pytest.mark.asyncio
+    async def test_structured_prompt_exception(self, service):
+        """Test the final exception handling in structured_prompt."""
+        with patch('common_new.azure_openai_service.with_token_limit_retry', new_callable=AsyncMock) as mock_retry:
+            mock_retry.side_effect = Exception("Generic Error")
+            
+            with pytest.raises(Exception, match="Generic Error"):
+                await service.structured_prompt(_TestModel, "System", "User") 
