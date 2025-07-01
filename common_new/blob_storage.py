@@ -62,9 +62,9 @@ class AsyncBlobStorageUploader:
         try:
             # Create credential and container client for testing
             credential = DefaultAzureCredential()
-            container_url = f"{self.account_url}/{self.container_name}"
             container_client = ContainerClient(
-                account_url=container_url,
+                account_url=self.account_url,
+                container_name=self.container_name,
                 credential=credential
             )
             
@@ -201,9 +201,9 @@ class AsyncBlobStorageUploader:
                 credential = DefaultAzureCredential()
                 
                 # Create container client to ensure container exists
-                container_url = f"{self.account_url}/{self.container_name}"
                 container_client = ContainerClient(
-                    account_url=container_url,
+                    account_url=self.account_url,
+                    container_name=self.container_name,
                     credential=credential
                 )
                 
@@ -216,9 +216,10 @@ class AsyncBlobStorageUploader:
                     pass
                 
                 # Create blob client for the specific blob
-                blob_url = f"{self.account_url}/{self.container_name}/{blob_name}"
                 blob_client = BlobClient(
-                    account_url=blob_url,
+                    account_url=self.account_url,
+                    container_name=self.container_name,
+                    blob_name=blob_name,
                     credential=credential
                 )
                 
@@ -341,9 +342,9 @@ class AsyncBlobStorageDownloader:
         try:
             # Create credential and container client for testing
             credential = DefaultAzureCredential()
-            container_url = f"{self.account_url}/{self.container_name}"
             container_client = ContainerClient(
-                account_url=container_url,
+                account_url=self.account_url,
+                container_name=self.container_name,
                 credential=credential
             )
             
@@ -436,9 +437,10 @@ class AsyncBlobStorageDownloader:
         try:
             # Create credentials and blob client
             credential = DefaultAzureCredential()
-            blob_url = f"{self.account_url}/{self.container_name}/{blob_name}"
             blob_client = BlobClient(
-                account_url=blob_url,
+                account_url=self.account_url,
+                container_name=self.container_name,
+                blob_name=blob_name,
                 credential=credential
             )
             
@@ -515,9 +517,9 @@ class AsyncBlobStorageDownloader:
         
         try:
             credential = DefaultAzureCredential()
-            container_url = f"{self.account_url}/{self.container_name}"
             container_client = ContainerClient(
-                account_url=container_url,
+                account_url=self.account_url,
+                container_name=self.container_name,
                 credential=credential
             )
             
@@ -557,9 +559,10 @@ class AsyncBlobStorageDownloader:
         
         try:
             credential = DefaultAzureCredential()
-            blob_url = f"{self.account_url}/{self.container_name}/{blob_name}"
             blob_client = BlobClient(
-                account_url=blob_url,
+                account_url=self.account_url,
+                container_name=self.container_name,
+                blob_name=blob_name,
                 credential=credential
             )
             
