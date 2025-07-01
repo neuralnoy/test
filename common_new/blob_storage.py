@@ -4,7 +4,7 @@ Asynchronous Azure Blob Storage client for uploading and downloading files.
 import os
 import asyncio
 from typing import Optional, Set, List
-from azure.storage.blob.aio import BlobServiceClient
+from azure.storage.blob.aio import BlobClient, ContainerClient
 from azure.identity.aio import DefaultAzureCredential
 from common_new.logger import get_logger
 
@@ -57,23 +57,24 @@ class AsyncBlobStorageUploader:
         
         # Verify we can connect to Azure Blob Storage
         credential = None
-        blob_service_client = None
+        container_client = None
         
         try:
-            # Create credential and client for testing
+            # Create credential and container client for testing
             credential = DefaultAzureCredential()
-            blob_service_client = BlobServiceClient(
-                account_url=self.account_url,
+            container_url = f"{self.account_url}/{self.container_name}"
+            container_client = ContainerClient(
+                account_url=container_url,
                 credential=credential
             )
             
-            # Test connection by listing containers
-            containers = []
-            async for container in blob_service_client.list_containers(name_starts_with=self.container_name):
-                containers.append(container["name"])
+            # Test connection by checking if container exists
+            container_exists = await container_client.exists()
             
-            if self.container_name not in containers:
+            if not container_exists:
                 logger.info(f"Container {self.container_name} not found, will be created when needed")
+            else:
+                logger.info(f"Container {self.container_name} exists and is accessible")
             
             # Create and start the upload worker task
             self._upload_task = asyncio.create_task(self._upload_worker())
@@ -86,8 +87,8 @@ class AsyncBlobStorageUploader:
             return False
         finally:
             # Make sure to close resources even when successful
-            if blob_service_client:
-                await blob_service_client.close()
+            if container_client:
+                await container_client.close()
             if credential:
                 await credential.close()
         
@@ -192,18 +193,19 @@ class AsyncBlobStorageUploader:
         # Implement retry logic with exponential backoff
         for attempt in range(self.max_retries):
             credential = None
-            blob_service_client = None
+            container_client = None
+            blob_client = None
             
             try:
-                # Create credentials and client
+                # Create credentials and clients
                 credential = DefaultAzureCredential()
-                blob_service_client = BlobServiceClient(
-                    account_url=self.account_url,
+                
+                # Create container client to ensure container exists
+                container_url = f"{self.account_url}/{self.container_name}"
+                container_client = ContainerClient(
+                    account_url=container_url,
                     credential=credential
                 )
-                
-                # Get the container client
-                container_client = blob_service_client.get_container_client(self.container_name)
                 
                 # Create container if it doesn't exist
                 try:
@@ -213,8 +215,12 @@ class AsyncBlobStorageUploader:
                     # Container might already exist (409 error)
                     pass
                 
-                # Get the blob client
-                blob_client = container_client.get_blob_client(blob_name)
+                # Create blob client for the specific blob
+                blob_url = f"{self.account_url}/{self.container_name}/{blob_name}"
+                blob_client = BlobClient(
+                    account_url=blob_url,
+                    credential=credential
+                )
                 
                 # Upload the file - use a synchronous open, then upload the data
                 file_size = os.path.getsize(file_path)
@@ -247,8 +253,10 @@ class AsyncBlobStorageUploader:
                     return False
             finally:
                 # Always clean up resources
-                if blob_service_client:
-                    await blob_service_client.close()
+                if blob_client:
+                    await blob_client.close()
+                if container_client:
+                    await container_client.close()
                 if credential:
                     await credential.close()
             
@@ -328,18 +336,18 @@ class AsyncBlobStorageDownloader:
         
         # Verify we can connect to Azure Blob Storage
         credential = None
-        blob_service_client = None
+        container_client = None
         
         try:
-            # Create credential and client for testing
+            # Create credential and container client for testing
             credential = DefaultAzureCredential()
-            blob_service_client = BlobServiceClient(
-                account_url=self.account_url,
+            container_url = f"{self.account_url}/{self.container_name}"
+            container_client = ContainerClient(
+                account_url=container_url,
                 credential=credential
             )
             
             # Test connection by checking if container exists
-            container_client = blob_service_client.get_container_client(self.container_name)
             container_exists = await container_client.exists()
             
             if not container_exists:
@@ -355,8 +363,8 @@ class AsyncBlobStorageDownloader:
             return False
         finally:
             # Make sure to close resources
-            if blob_service_client:
-                await blob_service_client.close()
+            if container_client:
+                await container_client.close()
             if credential:
                 await credential.close()
     
@@ -423,20 +431,15 @@ class AsyncBlobStorageDownloader:
             bool: True if download was successful, False otherwise
         """
         credential = None
-        blob_service_client = None
+        blob_client = None
         
         try:
-            # Create credentials and client
+            # Create credentials and blob client
             credential = DefaultAzureCredential()
-            blob_service_client = BlobServiceClient(
-                account_url=self.account_url,
+            blob_url = f"{self.account_url}/{self.container_name}/{blob_name}"
+            blob_client = BlobClient(
+                account_url=blob_url,
                 credential=credential
-            )
-            
-            # Get the blob client
-            blob_client = blob_service_client.get_blob_client(
-                container=self.container_name,
-                blob=blob_name
             )
             
             # Check if blob exists
@@ -486,8 +489,8 @@ class AsyncBlobStorageDownloader:
             return False
         finally:
             # Clean up resources
-            if blob_service_client:
-                await blob_service_client.close()
+            if blob_client:
+                await blob_client.close()
             if credential:
                 await credential.close()
     
@@ -508,16 +511,15 @@ class AsyncBlobStorageDownloader:
                 return []
         
         credential = None
-        blob_service_client = None
+        container_client = None
         
         try:
             credential = DefaultAzureCredential()
-            blob_service_client = BlobServiceClient(
-                account_url=self.account_url,
+            container_url = f"{self.account_url}/{self.container_name}"
+            container_client = ContainerClient(
+                account_url=container_url,
                 credential=credential
             )
-            
-            container_client = blob_service_client.get_container_client(self.container_name)
             
             blob_names = []
             async for blob in container_client.list_blobs(name_starts_with=name_starts_with):
@@ -530,8 +532,8 @@ class AsyncBlobStorageDownloader:
             logger.error(f"Error listing blobs: {str(e)}")
             return []
         finally:
-            if blob_service_client:
-                await blob_service_client.close()
+            if container_client:
+                await container_client.close()
             if credential:
                 await credential.close()
     
@@ -551,18 +553,14 @@ class AsyncBlobStorageDownloader:
                 return False
         
         credential = None
-        blob_service_client = None
+        blob_client = None
         
         try:
             credential = DefaultAzureCredential()
-            blob_service_client = BlobServiceClient(
-                account_url=self.account_url,
+            blob_url = f"{self.account_url}/{self.container_name}/{blob_name}"
+            blob_client = BlobClient(
+                account_url=blob_url,
                 credential=credential
-            )
-            
-            blob_client = blob_service_client.get_blob_client(
-                container=self.container_name,
-                blob=blob_name
             )
             
             return await blob_client.exists()
@@ -571,8 +569,8 @@ class AsyncBlobStorageDownloader:
             logger.error(f"Error checking if blob {blob_name} exists: {str(e)}")
             return False
         finally:
-            if blob_service_client:
-                await blob_service_client.close()
+            if blob_client:
+                await blob_client.close()
             if credential:
                 await credential.close()
 
