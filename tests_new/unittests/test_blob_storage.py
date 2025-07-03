@@ -76,27 +76,17 @@ class TestAsyncBlobStorageUploaderInitialize:
         
         # Mock Azure components
         mock_credential = AsyncMock()
-        mock_blob_client = AsyncMock()
-        mock_container = {"name": "test-container"}
+        mock_container_client = AsyncMock()
+        mock_container_client.exists.return_value = True
         
         with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-            with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
-                # Use regular Mock instead of AsyncMock for the client
-                mock_client = Mock()
-                mock_client_class.return_value = mock_client
-                
-                # Set up async methods on the mock client
-                mock_client.close = AsyncMock()
-                
-                # Make list_containers return our async iterator directly (not as a coroutine)
-                mock_client.list_containers = Mock(return_value=MockAsyncIterator([mock_container]))
-                
+            with patch('common_new.blob_storage.ContainerClient', return_value=mock_container_client):
                 result = await uploader.initialize()
                 
                 assert result is True
                 assert uploader._initialized is True
                 assert uploader._upload_task is not None
-                mock_client.close.assert_called_once()
+                mock_container_client.close.assert_called_once()
                 mock_credential.close.assert_called_once()
     
     @pytest.mark.asyncio
@@ -122,24 +112,16 @@ class TestAsyncBlobStorageUploaderInitialize:
         )
         
         mock_credential = AsyncMock()
+        mock_container_client = AsyncMock()
+        mock_container_client.exists.return_value = False
         
         with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-            with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
-                # Use regular Mock instead of AsyncMock for the client
-                mock_client = Mock()
-                mock_client_class.return_value = mock_client
-                
-                # Set up async methods on the mock client
-                mock_client.close = AsyncMock()
-                
-                # Make list_containers return empty async iterator
-                mock_client.list_containers = Mock(return_value=MockAsyncIterator([]))
-                
+            with patch('common_new.blob_storage.ContainerClient', return_value=mock_container_client):
                 result = await uploader.initialize()
                 
                 assert result is True
                 assert uploader._initialized is True
-                mock_client.close.assert_called_once()
+                mock_container_client.close.assert_called_once()
                 mock_credential.close.assert_called_once()
     
     @pytest.mark.asyncio
@@ -154,7 +136,7 @@ class TestAsyncBlobStorageUploaderInitialize:
         mock_credential = AsyncMock()
         
         with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-            with patch('common_new.blob_storage.BlobServiceClient', side_effect=Exception("Connection failed")):
+            with patch('common_new.blob_storage.ContainerClient', side_effect=Exception("Connection failed")):
                 result = await uploader.initialize()
                 
                 assert result is False
@@ -296,20 +278,7 @@ class TestAsyncBlobStorageUploaderUploadFileToBlob:
         
         mock_credential = AsyncMock()
         mock_blob_client = AsyncMock()
-        
-        # Use regular Mock for container client to avoid coroutine issues
-        mock_container_client = Mock()
-        mock_container_client.get_blob_client.return_value = mock_blob_client
-        
-        # Set up async methods only where needed
-        mock_container_client.create_container = AsyncMock()
-        
-        # Use regular Mock for the service client to avoid coroutine issues
-        mock_service_client = Mock()
-        mock_service_client.get_container_client.return_value = mock_container_client
-        
-        # Set up async methods
-        mock_service_client.close = AsyncMock()
+        mock_container_client = AsyncMock()
         
         file_content = b"test file content"
         
@@ -317,14 +286,16 @@ class TestAsyncBlobStorageUploaderUploadFileToBlob:
             with patch('os.path.getsize', return_value=len(file_content)):
                 with patch('builtins.open', mock_open(read_data=file_content)):
                     with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-                        with patch('common_new.blob_storage.BlobServiceClient', return_value=mock_service_client):
-                            with patch('asyncio.sleep'):
-                                result = await uploader._upload_file_to_blob("test.txt", "blob.txt")
-                                
-                                assert result is True
-                                mock_blob_client.upload_blob.assert_called_once_with(file_content, overwrite=True)
-                                mock_service_client.close.assert_called_once()
-                                mock_credential.close.assert_called_once()
+                        with patch('common_new.blob_storage.ContainerClient', return_value=mock_container_client):
+                            with patch('common_new.blob_storage.BlobClient', return_value=mock_blob_client):
+                                with patch('asyncio.sleep'):
+                                    result = await uploader._upload_file_to_blob("test.txt", "blob.txt")
+                                    
+                                    assert result is True
+                                    mock_blob_client.upload_blob.assert_called_once_with(file_content, overwrite=True)
+                                    mock_container_client.close.assert_called_once()
+                                    mock_blob_client.close.assert_called_once()
+                                    mock_credential.close.assert_called_once()
     
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -339,20 +310,7 @@ class TestAsyncBlobStorageUploaderUploadFileToBlob:
         
         mock_credential = AsyncMock()
         mock_blob_client = AsyncMock()
-        
-        # Use regular Mock for container client to avoid coroutine issues
-        mock_container_client = Mock()
-        mock_container_client.get_blob_client.return_value = mock_blob_client
-        
-        # Set up async methods only where needed
-        mock_container_client.create_container = AsyncMock()
-        
-        # Use regular Mock for the service client to avoid coroutine issues
-        mock_service_client = Mock()
-        mock_service_client.get_container_client.return_value = mock_container_client
-        
-        # Set up async methods
-        mock_service_client.close = AsyncMock()
+        mock_container_client = AsyncMock()
         
         # First attempt fails, second succeeds
         mock_blob_client.upload_blob.side_effect = [Exception("Upload failed"), None]
@@ -363,12 +321,13 @@ class TestAsyncBlobStorageUploaderUploadFileToBlob:
             with patch('os.path.getsize', return_value=len(file_content)):
                 with patch('builtins.open', mock_open(read_data=file_content)):
                     with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-                        with patch('common_new.blob_storage.BlobServiceClient', return_value=mock_service_client):
-                            with patch('asyncio.sleep'):
-                                result = await uploader._upload_file_to_blob("test.txt", "blob.txt")
-                                
-                                assert result is True
-                                assert mock_blob_client.upload_blob.call_count == 2
+                        with patch('common_new.blob_storage.ContainerClient', return_value=mock_container_client):
+                            with patch('common_new.blob_storage.BlobClient', return_value=mock_blob_client):
+                                with patch('asyncio.sleep'):
+                                    result = await uploader._upload_file_to_blob("test.txt", "blob.txt")
+                                    
+                                    assert result is True
+                                    assert mock_blob_client.upload_blob.call_count == 2
     
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -383,21 +342,9 @@ class TestAsyncBlobStorageUploaderUploadFileToBlob:
         
         mock_credential = AsyncMock()
         mock_blob_client = AsyncMock()
+        mock_container_client = AsyncMock()
         
-        # Use regular Mock for container client to avoid coroutine issues
-        mock_container_client = Mock()
-        mock_container_client.get_blob_client.return_value = mock_blob_client
         mock_blob_client.upload_blob.side_effect = Exception("Upload failed")
-        
-        # Set up async methods only where needed
-        mock_container_client.create_container = AsyncMock()
-        
-        # Use regular Mock for the service client to avoid coroutine issues
-        mock_service_client = Mock()
-        mock_service_client.get_container_client.return_value = mock_container_client
-        
-        # Set up async methods
-        mock_service_client.close = AsyncMock()
         
         file_content = b"test file content"
         
@@ -405,12 +352,13 @@ class TestAsyncBlobStorageUploaderUploadFileToBlob:
             with patch('os.path.getsize', return_value=len(file_content)):
                 with patch('builtins.open', mock_open(read_data=file_content)):
                     with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-                        with patch('common_new.blob_storage.BlobServiceClient', return_value=mock_service_client):
-                            with patch('asyncio.sleep'):
-                                result = await uploader._upload_file_to_blob("test.txt", "blob.txt")
-                                
-                                assert result is False
-                                assert mock_blob_client.upload_blob.call_count == 2
+                        with patch('common_new.blob_storage.ContainerClient', return_value=mock_container_client):
+                            with patch('common_new.blob_storage.BlobClient', return_value=mock_blob_client):
+                                with patch('asyncio.sleep'):
+                                    result = await uploader._upload_file_to_blob("test.txt", "blob.txt")
+                                    
+                                    assert result is False
+                                    assert mock_blob_client.upload_blob.call_count == 2
 
 
 class TestAsyncBlobStorageUploaderUploadWorker:
@@ -591,16 +539,8 @@ class TestAsyncBlobStorageUploaderIntegration:
         # Mock all Azure components
         mock_credential = AsyncMock()
         mock_blob_client = AsyncMock()
-        mock_container_client = Mock()
-        mock_service_client = Mock()
-        
-        mock_service_client.get_container_client.return_value = mock_container_client
-        mock_container_client.get_blob_client.return_value = mock_blob_client
-        mock_service_client.close = AsyncMock()
-        mock_container_client.create_container = AsyncMock()
-        
-        # Properly mock list_containers to return an async iterator
-        mock_service_client.list_containers = Mock(return_value=MockAsyncIterator([{"name": "test-container"}]))
+        mock_container_client = AsyncMock()
+        mock_container_client.exists.return_value = True
         
         file_content = b"test file content"
         
@@ -608,22 +548,23 @@ class TestAsyncBlobStorageUploaderIntegration:
             with patch('os.path.getsize', return_value=len(file_content)):
                 with patch('builtins.open', mock_open(read_data=file_content)):
                     with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-                        with patch('common_new.blob_storage.BlobServiceClient', return_value=mock_service_client):
-                            # Initialize
-                            init_success = await uploader.initialize()
-                            assert init_success is True
-                            
-                            # Upload file
-                            await uploader.upload_file("test.txt", "test-blob.txt")
-                            
-                            # Verify file was queued
-                            assert uploader._upload_queue.qsize() == 1
-                            
-                            # Shutdown (this will process any queued uploads)
-                            await uploader.shutdown()
-                            
-                            # Verify shutdown completed
-                            assert not uploader._initialized
+                        with patch('common_new.blob_storage.ContainerClient', return_value=mock_container_client):
+                            with patch('common_new.blob_storage.BlobClient', return_value=mock_blob_client):
+                                # Initialize
+                                init_success = await uploader.initialize()
+                                assert init_success is True
+                                
+                                # Upload file
+                                await uploader.upload_file("test.txt", "test-blob.txt")
+                                
+                                # Verify file was queued
+                                assert uploader._upload_queue.qsize() == 1
+                                
+                                # Shutdown (this will process any queued uploads)
+                                await uploader.shutdown()
+                                
+                                # Verify shutdown completed
+                                assert not uploader._initialized
 
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -668,28 +609,24 @@ class TestAsyncBlobStorageUploaderIntegration:
         # Test 2: File exists during size check but deleted before reading
         mock_credential = AsyncMock()
         mock_blob_client = AsyncMock()
-        mock_container_client = Mock()
-        mock_service_client = Mock()
-        
-        mock_service_client.get_container_client.return_value = mock_container_client
-        mock_container_client.get_blob_client.return_value = mock_blob_client
-        mock_service_client.close = AsyncMock()
-        mock_container_client.create_container = AsyncMock()
+        mock_container_client = AsyncMock()
         
         with patch('os.path.exists', return_value=True):
             with patch('os.path.getsize', return_value=100):
                 # Simulate file being deleted after size check but before open
                 with patch('builtins.open', side_effect=FileNotFoundError("File not found")):
                     with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-                        with patch('common_new.blob_storage.BlobServiceClient', return_value=mock_service_client):
-                            result = await uploader._upload_file_to_blob("deleted_during_read.txt", "blob.txt")
-                            
-                            # Should return False when file can't be read
-                            assert result is False
-                            
-                            # Should still clean up resources
-                            mock_service_client.close.assert_called()
-                            mock_credential.close.assert_called()
+                        with patch('common_new.blob_storage.ContainerClient', return_value=mock_container_client):
+                            with patch('common_new.blob_storage.BlobClient', return_value=mock_blob_client):
+                                result = await uploader._upload_file_to_blob("deleted_during_read.txt", "blob.txt")
+                                
+                                # Should return False when file can't be read
+                                assert result is False
+                                
+                                # Should still clean up resources
+                                mock_container_client.close.assert_called()
+                                mock_blob_client.close.assert_called()
+                                mock_credential.close.assert_called()
         
         # Clear state for final test
         uploader._processed_files.clear()
@@ -2036,17 +1973,12 @@ class TestAsyncBlobStorageDownloader:
         mock_container_client.exists.return_value = True
         
         with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-            with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
-                mock_client = Mock()  # Use regular Mock for the service client
-                mock_client_class.return_value = mock_client
-                mock_client.close = AsyncMock()  # Only the close method is async
-                mock_client.get_container_client.return_value = mock_container_client
-                
+            with patch('common_new.blob_storage.ContainerClient', return_value=mock_container_client):
                 result = await downloader.initialize()
                 
                 assert result is True
                 assert downloader._initialized is True
-                mock_client.close.assert_called_once()
+                mock_container_client.close.assert_called_once()
                 mock_credential.close.assert_called_once()
     
     @pytest.mark.asyncio
@@ -2063,12 +1995,7 @@ class TestAsyncBlobStorageDownloader:
         mock_container_client.exists.return_value = False
         
         with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-            with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
-                mock_client = Mock()  # Use regular Mock for the service client
-                mock_client_class.return_value = mock_client
-                mock_client.close = AsyncMock()  # Only the close method is async
-                mock_client.get_container_client.return_value = mock_container_client
-                
+            with patch('common_new.blob_storage.ContainerClient', return_value=mock_container_client):
                 result = await downloader.initialize()
                 
                 assert result is False
@@ -2085,7 +2012,7 @@ class TestAsyncBlobStorageDownloader:
         downloader._initialized = True
         
         mock_credential = AsyncMock()
-        mock_container_client = Mock()  # Use regular Mock for the container client
+        mock_container_client = AsyncMock()
         
         # Mock blob objects
         mock_blob1 = Mock()
@@ -2111,19 +2038,18 @@ class TestAsyncBlobStorageDownloader:
                 self.index += 1
                 return blob
         
-        mock_container_client.list_blobs.return_value = MockBlobIterator(mock_blobs)
+        # Set up the list_blobs method to return the iterator directly
+        def list_blobs_side_effect(name_starts_with=None):
+            return MockBlobIterator(mock_blobs)
+        
+        mock_container_client.list_blobs = Mock(side_effect=list_blobs_side_effect)
         
         with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-            with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
-                mock_client = Mock()  # Use regular Mock for the service client
-                mock_client_class.return_value = mock_client
-                mock_client.close = AsyncMock()  # Only the close method is async
-                mock_client.get_container_client.return_value = mock_container_client
-                
+            with patch('common_new.blob_storage.ContainerClient', return_value=mock_container_client):
                 result = await downloader.list_blobs()
                 
                 assert result == ["file1.txt", "file2.txt", "file3.txt"]
-                mock_client.close.assert_called_once()
+                mock_container_client.close.assert_called_once()
                 mock_credential.close.assert_called_once()
     
     @pytest.mark.asyncio
@@ -2141,16 +2067,11 @@ class TestAsyncBlobStorageDownloader:
         mock_blob_client.exists.return_value = True
         
         with patch('common_new.blob_storage.DefaultAzureCredential', return_value=mock_credential):
-            with patch('common_new.blob_storage.BlobServiceClient') as mock_client_class:
-                mock_client = Mock()  # Use regular Mock for the service client
-                mock_client_class.return_value = mock_client
-                mock_client.close = AsyncMock()  # Only the close method is async
-                mock_client.get_blob_client.return_value = mock_blob_client
-                
+            with patch('common_new.blob_storage.BlobClient', return_value=mock_blob_client):
                 result = await downloader.blob_exists("test.txt")
                 
                 assert result is True
-                mock_client.close.assert_called_once()
+                mock_blob_client.close.assert_called_once()
                 mock_credential.close.assert_called_once()
 
 
