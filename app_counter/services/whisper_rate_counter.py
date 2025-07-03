@@ -29,6 +29,19 @@ class WhisperRateCounter:
     async def _reset_if_needed(self):
         """Reset the counter if a minute has passed."""
         current_time = time.time()
+        
+        # Clean up stale locked requests older than 60 seconds
+        stale_requests = [
+            req_id for req_id, req_data in self.active_requests.items()
+            if current_time - req_data.get("timestamp", 0) > 60
+        ]
+
+        if stale_requests:
+            self.locked_requests -= len(stale_requests)
+            for req_id in stale_requests:
+                del self.active_requests[req_id]
+            logger.warning(f"Cleaned up {len(stale_requests)} stale Whisper rate requests.")
+
         if current_time - self.last_reset >= 60:
             logger.info(f"Resetting Whisper rate counter. Before reset: used={self.used_requests}, locked={self.locked_requests}, total={(self.used_requests + self.locked_requests)}/{self.requests_per_minute}")
             self.used_requests = 0

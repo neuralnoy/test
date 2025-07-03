@@ -29,6 +29,22 @@ class EmbeddingTokenCounter:
     async def _reset_if_needed(self):
         """Reset the counter if a minute has passed."""
         current_time = time.time()
+
+        # Clean up stale locked requests older than 60 seconds
+        stale_requests = [
+            req_id for req_id, req_data in self.requests.items()
+            if current_time - req_data.get("timestamp", 0) > 60
+        ]
+        
+        if stale_requests:
+            stale_tokens = 0
+            for req_id in stale_requests:
+                stale_tokens += self.requests[req_id].get("locked_tokens", 0)
+                del self.requests[req_id]
+            
+            self.locked_tokens -= stale_tokens
+            logger.warning(f"Cleaned up {len(stale_requests)} stale embedding requests, releasing {stale_tokens} locked tokens.")
+
         if current_time - self.last_reset >= 60:
             logger.info(f"Resetting embedding token counter. Before reset: used={self.used_tokens}, locked={self.locked_tokens}, total={(self.used_tokens + self.locked_tokens)}/{self.tokens_per_minute}")
             self.used_tokens = 0
