@@ -2,7 +2,7 @@ import os
 import asyncio
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Request, Depends
-from fastapi.security import OAuth2Bearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 import aiohttp
 from contextlib import asynccontextmanager
@@ -47,9 +47,10 @@ WHISPER_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_WHISPER_RPM_QUOTA", "15"))
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
 AUDIENCE = os.getenv("AZURE_AUDIENCE") # This is the Application ID URI e.g., "api://<client-id>"
 
-oauth2_scheme = OAuth2Bearer()
+oauth2_scheme = HTTPBearer()
 
-async def get_validated_token(token: str = Depends(oauth2_scheme)) -> dict:
+async def get_validated_token(auth: HTTPAuthorizationCredentials = Depends(oauth2_scheme)) -> dict:
+    token = auth.credentials
     if not TENANT_ID or not AUDIENCE:
         logger.error("Azure AD config (TENANT_ID, AUDIENCE) is not set. Denying all requests.")
         raise HTTPException(status_code=500, detail="Server authentication is not configured.")
