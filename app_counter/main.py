@@ -1,7 +1,10 @@
 import os
 import asyncio
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi.security import OAuth2Bearer
+from jose import jwt, JWTError
+import aiohttp
 from contextlib import asynccontextmanager
 from common_new.logger import get_logger
 from common_new.pom_reader import get_pom_version
@@ -39,6 +42,58 @@ EMBEDDING_TOKEN_LIMIT_PER_MINUTE = int(os.getenv("APP_EMBEDDING_TPM_QUOTA", "100
 EMBEDDING_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_EMBEDDING_RPM_QUOTA", "6000"))
 # Get Whisper rate limit from environment variables or use default
 WHISPER_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_WHISPER_RPM_QUOTA", "15"))
+
+# Azure AD Configuration
+TENANT_ID = os.getenv("AZURE_TENANT_ID")
+AUDIENCE = os.getenv("AZURE_AUDIENCE") # This is the Application ID URI e.g., "api://<client-id>"
+
+oauth2_scheme = OAuth2Bearer()
+
+async def get_validated_token(token: str = Depends(oauth2_scheme)) -> dict:
+    if not TENANT_ID or not AUDIENCE:
+        logger.error("Azure AD config (TENANT_ID, AUDIENCE) is not set. Denying all requests.")
+        raise HTTPException(status_code=500, detail="Server authentication is not configured.")
+
+    jwks_url = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(jwks_url) as response:
+                response.raise_for_status()
+                jwks = await response.json()
+    except aiohttp.ClientError as e:
+        raise HTTPException(status_code=500, detail=f"Could not retrieve JWT signing keys: {e}")
+
+    try:
+        unverified_header = jwt.get_unverified_header(token)
+        rsa_key = {}
+        for key in jwks["keys"]:
+            if key["kid"] == unverified_header["kid"]:
+                rsa_key = {
+                    "kty": key["kty"],
+                    "kid": key["kid"],
+                    "use": key["use"],
+                    "n": key["n"],
+                    "e": key["e"],
+                }
+        if not rsa_key:
+            raise HTTPException(status_code=401, detail="Unable to find appropriate key")
+
+        payload = jwt.decode(
+            token,
+            rsa_key,
+            algorithms=["RS256"],
+            audience=AUDIENCE,
+            issuer=f"https://sts.windows.net/{TENANT_ID}/"
+        )
+        return payload
+    except JWTError as e:
+        logger.error(f"JWT Validation Error: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail="Could not validate credential",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 # Initialize the token counter and rate counter services
 token_counter = TokenCounter(tokens_per_minute=TOKEN_LIMIT_PER_MINUTE)
@@ -108,7 +163,11 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down log monitor service")
         await app.state.log_monitor.shutdown()
 
-app = FastAPI(title="OpenAI Token Counter", lifespan=lifespan)
+app = FastAPI(
+    title="OpenAI Token Counter", 
+    lifespan=lifespan,
+    dependencies=[Depends(get_validated_token)]
+)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):

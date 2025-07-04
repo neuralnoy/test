@@ -21,3 +21,4 @@ soundfile==0.13.1
 librosa==0.11.0
 numpy==2.2.6
 scikit-learn==1.7.0
+python-jose[cryptography]

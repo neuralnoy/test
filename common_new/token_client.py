@@ -5,12 +5,14 @@ from common_new.logger import get_logger
 import time
 import asyncio
 from dotenv import load_dotenv
+from azure.identity.aio import DefaultAzureCredential
 
 load_dotenv()
 
 logger = get_logger("common")
 
 BASE_URL = str(os.getenv("COUNTER_APP_BASE_URL"))
+COUNTER_API_SCOPE = os.getenv("COUNTER_API_SCOPE")
 
 class TokenClient:
     """
@@ -30,7 +32,23 @@ class TokenClient:
         self.app_id = app_id
         self.base_url = base_url.rstrip("/")
         self.timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+        self._credential = None
+        if COUNTER_API_SCOPE:
+            self._credential = DefaultAzureCredential()
        
+    async def _get_auth_header(self) -> Dict[str, str]:
+        """Gets the Authorization header if authentication is configured."""
+        if not self._credential or not COUNTER_API_SCOPE:
+            return {}
+        
+        try:
+            token = await self._credential.get_token(COUNTER_API_SCOPE)
+            return {"Authorization": f"Bearer {token.token}"}
+        except Exception as e:
+            logger.error(f"Failed to acquire token for scope {COUNTER_API_SCOPE}: {e}")
+            # Decide if you want to fail hard or try request without auth
+            return {}
+
     async def _make_request_with_retry(self, method: str, url: str, data: Optional[Dict] = None, max_retries: int = 3) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
         Make HTTP request with retry logic for timeout and connection errors.
@@ -46,11 +64,13 @@ class TokenClient:
         """
         last_exception = None
         
+        headers = await self._get_auth_header()
+        
         for attempt in range(max_retries):
             try:
                 async with aiohttp.ClientSession(timeout=self.timeout) as session:
                     if method.upper() == 'GET':
-                        async with session.get(url) as response:
+                        async with session.get(url, headers=headers) as response:
                             if response.status == 200:
                                 response_data = await response.json()
                                 return True, response_data, None
@@ -58,7 +78,7 @@ class TokenClient:
                                 error_data = await response.json() if response.content_type == 'application/json' else {}
                                 return False, error_data, error_data.get("message", f"HTTP {response.status}")
                     else:  # POST
-                        async with session.post(url, json=data) as response:
+                        async with session.post(url, json=data, headers=headers) as response:
                             response_data = await response.json()
                             if response.status == 200:
                                 return True, response_data, None
