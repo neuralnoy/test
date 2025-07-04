@@ -5,13 +5,18 @@ from common_new.logger import get_logger
 import time
 import asyncio
 from dotenv import load_dotenv
-from azure.identity.aio import DefaultAzureCredential
+from azure.identity.aio import ClientSecretCredential
 
 load_dotenv()
 
 logger = get_logger("common")
 
 BASE_URL = str(os.getenv("COUNTER_APP_BASE_URL"))
+
+# Specific credentials for Counter API
+COUNTER_API_TENANT_ID = os.getenv("COUNTER_API_TENANT_ID")
+COUNTER_API_CLIENT_ID = os.getenv("COUNTER_API_CLIENT_ID")
+COUNTER_API_CLIENT_SECRET = os.getenv("COUNTER_API_CLIENT_SECRET")
 COUNTER_API_SCOPE = os.getenv("COUNTER_API_SCOPE")
 
 class TokenClient:
@@ -33,8 +38,15 @@ class TokenClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         self._credential = None
-        if COUNTER_API_SCOPE:
-            self._credential = DefaultAzureCredential()
+        # Only initialize if all specific variables for the counter API are present
+        if COUNTER_API_TENANT_ID and COUNTER_API_CLIENT_ID and COUNTER_API_CLIENT_SECRET:
+            self._credential = ClientSecretCredential(
+                tenant_id=COUNTER_API_TENANT_ID,
+                client_id=COUNTER_API_CLIENT_ID,
+                client_secret=COUNTER_API_CLIENT_SECRET,
+            )
+        else:
+            logger.info("Counter API client credentials not fully configured; will make unauthenticated requests.")
        
     async def _get_auth_header(self) -> Dict[str, str]:
         """Gets the Authorization header if authentication is configured."""
@@ -45,8 +57,7 @@ class TokenClient:
             token = await self._credential.get_token(COUNTER_API_SCOPE)
             return {"Authorization": f"Bearer {token.token}"}
         except Exception as e:
-            logger.error(f"Failed to acquire token for scope {COUNTER_API_SCOPE}: {e}")
-            # Decide if you want to fail hard or try request without auth
+            logger.error(f"Failed to acquire token for scope {COUNTER_API_SCOPE} using specific credentials: {e}")
             return {}
 
     async def _make_request_with_retry(self, method: str, url: str, data: Optional[Dict] = None, max_retries: int = 3) -> Tuple[bool, Optional[Dict], Optional[str]]:

@@ -43,16 +43,16 @@ EMBEDDING_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_EMBEDDING_RPM_QUOTA", "6000
 # Get Whisper rate limit from environment variables or use default
 WHISPER_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_WHISPER_RPM_QUOTA", "15"))
 
-# Azure AD Configuration
-TENANT_ID = os.getenv("AZURE_TENANT_ID")
-AUDIENCE = os.getenv("AZURE_AUDIENCE") # This is the Application ID URI e.g., "api://<client-id>"
+# Azure AD Configuration using specific variables
+TENANT_ID = os.getenv("COUNTER_API_TENANT_ID")
+AUDIENCE = os.getenv("COUNTER_API_AUDIENCE")
 
 oauth2_scheme = HTTPBearer()
 
 async def get_validated_token(auth: HTTPAuthorizationCredentials = Depends(oauth2_scheme)) -> dict:
     token = auth.credentials
     if not TENANT_ID or not AUDIENCE:
-        logger.error("Azure AD config (TENANT_ID, AUDIENCE) is not set. Denying all requests.")
+        logger.error("Counter API auth config (COUNTER_API_TENANT_ID, COUNTER_API_AUDIENCE) is not set. Denying all requests.")
         raise HTTPException(status_code=500, detail="Server authentication is not configured.")
 
     jwks_url = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
