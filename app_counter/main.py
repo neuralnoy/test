@@ -1,10 +1,11 @@
 import os
 import asyncio
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException, Request, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
-import aiohttp
+from fastapi import FastAPI, HTTPException, Request, Depends, status
+from fastapi.security import OAuth2AuthorizationCodeBearer
+from jwt import PyJWKClient, decode, ExpiredSignatureError, InvalidAudienceError, InvalidIssuerError
+import logging
+from typing import Dict, List
 from contextlib import asynccontextmanager
 from common_new.logger import get_logger
 from common_new.pom_reader import get_pom_version
@@ -45,56 +46,77 @@ WHISPER_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_WHISPER_RPM_QUOTA", "15"))
 
 # Azure AD Configuration using specific variables
 TENANT_ID = os.getenv("COUNTER_API_TENANT_ID")
-AUDIENCE = os.getenv("COUNTER_API_AUDIENCE")
+# Replace with your Azure AD Application (Client) ID
+CLIENT_ID = os.getenv("COUNTER_API_CLIENT_ID")
+# Replace with the Client ID of the caller application
+CALLER_CLIENT_ID = os.getenv("APP_CALLER_CLIENT_ID") 
+# Replace with your API's audience
+AUDIENCES = [CLIENT_ID, f"api://{CLIENT_ID}", CALLER_CLIENT_ID] if CLIENT_ID and CALLER_CLIENT_ID else []
 
-oauth2_scheme = HTTPBearer()
+# OAuth2 scheme
+oauth2_scheme = OAuth2AuthorizationCodeBearer(
+    authorizationUrl=f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize",
+    tokenUrl=f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token",
+    auto_error=False
+)
 
-async def get_validated_token(auth: HTTPAuthorizationCredentials = Depends(oauth2_scheme)) -> dict:
-    token = auth.credentials
-    if not TENANT_ID or not AUDIENCE:
-        logger.error("Counter API auth config (COUNTER_API_TENANT_ID, COUNTER_API_AUDIENCE) is not set. Denying all requests.")
+async def validate_azure_jwt(token: str, tenant_id: str, audiences: List[str]) -> Dict:
+    if not tenant_id or not audiences:
+        logger.error("Server authentication is not configured. TENANT_ID and AUDIENCES must be set.")
         raise HTTPException(status_code=500, detail="Server authentication is not configured.")
 
-    jwks_url = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
-    
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(jwks_url) as response:
-                response.raise_for_status()
-                jwks = await response.json()
-    except aiohttp.ClientError as e:
-        raise HTTPException(status_code=500, detail=f"Could not retrieve JWT signing keys: {e}")
-
-    try:
-        unverified_header = jwt.get_unverified_header(token)
-        rsa_key = {}
-        for key in jwks["keys"]:
-            if key["kid"] == unverified_header["kid"]:
-                rsa_key = {
-                    "kty": key["kty"],
-                    "kid": key["kid"],
-                    "use": key["use"],
-                    "n": key["n"],
-                    "e": key["e"],
-                }
-        if not rsa_key:
-            raise HTTPException(status_code=401, detail="Unable to find appropriate key")
-
-        payload = jwt.decode(
+        jwks_client = PyJWKClient(
+            uri=f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys",
+            cache_keys=True
+        )
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        payload = decode(
             token,
-            rsa_key,
+            signing_key.key,
             algorithms=["RS256"],
-            audience=AUDIENCE,
-            issuer=f"https://sts.windows.net/{TENANT_ID}/"
+            audience=audiences,
+            issuer=[f"https://login.microsoftonline.com/{tenant_id}/v2.0", f"https://sts.windows.net/{tenant_id}/"]
         )
         return payload
-    except JWTError as e:
-        logger.error(f"JWT Validation Error: {e}")
+    except ExpiredSignatureError:
+        logger.error("Token has expired")
         raise HTTPException(
-            status_code=401,
-            detail="Could not validate credential",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    except InvalidAudienceError:
+        logger.error(f"Invalid audience")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid audience",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except InvalidIssuerError:
+        logger.error(f"Invalid issuer")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid issuer",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except Exception as e:
+        logger.error(f"JWT validation error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+# Dependency to get current user
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No token provided",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await validate_azure_jwt(token, TENANT_ID, AUDIENCES)
 
 # Initialize the token counter and rate counter services
 token_counter = TokenCounter(tokens_per_minute=TOKEN_LIMIT_PER_MINUTE)
@@ -166,8 +188,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="OpenAI Token Counter", 
-    lifespan=lifespan,
-    dependencies=[Depends(get_validated_token)]
+    lifespan=lifespan
 )
 
 @app.middleware("http")
@@ -201,7 +222,7 @@ def health_check():
     return {"status": "healthy"}
 
 @app.post("/lock", response_model=TokenResponse)
-async def lock_tokens(request: TokenRequest):
+async def lock_tokens(request: TokenRequest, current_user: dict = Depends(get_current_user)):
     """
     Lock tokens for usage and check rate limits.
     Returns whether the request is allowed and a request ID if allowed.
@@ -244,7 +265,7 @@ async def lock_tokens(request: TokenRequest):
     )
 
 @app.post("/report", status_code=200)
-async def report_usage(report: TokenReport):
+async def report_usage(report: TokenReport, current_user: dict = Depends(get_current_user)):
     """
     Report actual token usage after an API call.
     """
@@ -276,7 +297,7 @@ async def report_usage(report: TokenReport):
     return {"success": True}
 
 @app.post("/release", status_code=200)
-async def release_tokens(request: ReleaseRequest):
+async def release_tokens(request: ReleaseRequest, current_user: dict = Depends(get_current_user)):
     """
     Release locked tokens that won't be used.
     """
@@ -303,7 +324,7 @@ async def release_tokens(request: ReleaseRequest):
     return {"success": True}
 
 @app.get("/status", response_model=StatusResponse)
-async def get_status():
+async def get_status(current_user: dict = Depends(get_current_user)):
     """
     Get the current status of the token counter and rate counter.
     """
@@ -341,7 +362,7 @@ async def get_status():
 
 # Embedding endpoints
 @app.post("/embedding/lock", response_model=TokenResponse)
-async def lock_embedding_tokens(request: TokenRequest):
+async def lock_embedding_tokens(request: TokenRequest, current_user: dict = Depends(get_current_user)):
     """
     Lock embedding tokens for usage and check embedding rate limits.
     Returns whether the request is allowed and a request ID if allowed.
@@ -383,7 +404,7 @@ async def lock_embedding_tokens(request: TokenRequest):
     )
 
 @app.post("/embedding/report", status_code=200)
-async def report_embedding_usage(report: EmbeddingReport):
+async def report_embedding_usage(report: EmbeddingReport, current_user: dict = Depends(get_current_user)):
     """
     Report actual embedding token usage after an API call.
     """
@@ -421,7 +442,7 @@ async def report_embedding_usage(report: EmbeddingReport):
     return {"success": True}
 
 @app.post("/embedding/release", status_code=200)
-async def release_embedding_tokens(request: ReleaseRequest):
+async def release_embedding_tokens(request: ReleaseRequest, current_user: dict = Depends(get_current_user)):
     """
     Release locked embedding tokens that won't be used.
     """
@@ -458,7 +479,7 @@ async def release_embedding_tokens(request: ReleaseRequest):
     return {"success": True}
 
 @app.get("/embedding/status", response_model=EmbeddingStatusResponse)
-async def get_embedding_status():
+async def get_embedding_status(current_user: dict = Depends(get_current_user)):
     """
     Get the current status of the embedding token counter and rate counter.
     """
@@ -496,7 +517,7 @@ async def get_embedding_status():
 
 # Whisper endpoints
 @app.post("/whisper/lock", response_model=WhisperRateResponse)
-async def lock_whisper_rate(request: WhisperRateRequest):
+async def lock_whisper_rate(request: WhisperRateRequest, current_user: dict = Depends(get_current_user)):
     """
     Lock a Whisper API rate slot.
     Returns whether the request is allowed and a request ID if allowed.
@@ -521,7 +542,7 @@ async def lock_whisper_rate(request: WhisperRateRequest):
     )
 
 @app.post("/whisper/report", status_code=200)
-async def report_whisper_usage(report: WhisperRateReport):
+async def report_whisper_usage(report: WhisperRateReport, current_user: dict = Depends(get_current_user)):
     """
     Report that a Whisper API request was completed.
     """
@@ -541,7 +562,7 @@ async def report_whisper_usage(report: WhisperRateReport):
     return {"success": True}
 
 @app.post("/whisper/release", status_code=200)
-async def release_whisper_rate(request: WhisperRateRelease):
+async def release_whisper_rate(request: WhisperRateRelease, current_user: dict = Depends(get_current_user)):
     """
     Release a locked Whisper rate slot that won't be used.
     """
@@ -558,7 +579,7 @@ async def release_whisper_rate(request: WhisperRateRelease):
     return {"success": True}
 
 @app.get("/whisper/status", response_model=WhisperRateStatusResponse)
-async def get_whisper_status():
+async def get_whisper_status(current_user: dict = Depends(get_current_user)):
     """
     Get the current status of the Whisper rate counter.
     """
