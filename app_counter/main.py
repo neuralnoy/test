@@ -1,10 +1,8 @@
 import os
-import asyncio
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Request, Depends, status
 from fastapi.security import OAuth2AuthorizationCodeBearer
 from jwt import PyJWKClient, decode, ExpiredSignatureError, InvalidAudienceError, InvalidIssuerError
-import logging
 from typing import Dict, List
 from contextlib import asynccontextmanager
 from common_new.logger import get_logger
@@ -14,6 +12,7 @@ from app_counter.services.rate_counter import RateCounter
 from app_counter.services.embedding_token_counter import EmbeddingTokenCounter
 from app_counter.services.embedding_rate_counter import EmbeddingRateCounter
 from app_counter.services.whisper_rate_counter import WhisperRateCounter
+from dotenv import load_dotenv
 from app_counter.models.schemas import (
     TokenRequest,
     TokenReport,
@@ -28,6 +27,8 @@ from app_counter.models.schemas import (
     WhisperRateResponse,
     WhisperRateStatusResponse
 )
+
+load_dotenv()
 
 logger = get_logger("counter")
 
@@ -45,9 +46,9 @@ EMBEDDING_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_EMBEDDING_RPM_QUOTA", "6000
 WHISPER_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_WHISPER_RPM_QUOTA", "15"))
 
 # Azure AD Configuration using specific variables
-TENANT_ID = os.getenv("COUNTER_API_TENANT_ID")
+TENANT_ID = os.getenv("AZURE_TENANT_ID")
 # Replace with your Azure AD Application (Client) ID
-CLIENT_ID = os.getenv("COUNTER_API_CLIENT_ID")
+CLIENT_ID = os.getenv("APP_COUNTER_CLIENT_ID")
 # Replace with the Client ID of the caller application
 CALLER_CLIENT_ID = os.getenv("APP_CALLER_CLIENT_ID") 
 # Replace with your API's audience
@@ -139,7 +140,6 @@ async def lifespan(app: FastAPI):
     account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
     account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
     container_name = os.getenv("AZURE_LOGS_CONTAINER_NAME", "fla-logs")
-    retention_days = int(os.getenv("AZURE_LOGS_RETENTION_DAYS", "7"))
     scan_interval = int(os.getenv("LOG_SCAN_INTERVAL", "300"))
     app_name = os.getenv("APP_NAME_FOR_LOGGER")  # Get app name from environment variables
     
@@ -156,7 +156,6 @@ async def lifespan(app: FastAPI):
             account_url=account_url,
             container_name=container_name,
             app_name=app_name,  # Pass app_name to the LogMonitorService
-            retention_days=retention_days,
             scan_interval=scan_interval
         )
         
