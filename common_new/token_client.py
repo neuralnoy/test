@@ -44,6 +44,9 @@ class TokenClient:
                 tenant_id=COUNTER_API_TENANT_ID,
                 client_id=COUNTER_API_CLIENT_ID,
                 client_secret=COUNTER_API_CLIENT_SECRET,
+                retry_total=3,
+                retry_backoff_factor=1,
+                retry_on_status_codes=[500, 502, 503, 504]
             )
         else:
             logger.info("Counter API client credentials not fully configured; will make unauthenticated requests.")
