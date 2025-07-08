@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Request, Depends, status
 from fastapi.security import OAuth2AuthorizationCodeBearer
@@ -32,6 +33,7 @@ load_dotenv()
 
 logger = get_logger("counter")
 
+# Global time variable to track the new deployment start time
 start_time = datetime.now(timezone.utc)
 
 # Get token limit from environment variables or use default
@@ -48,11 +50,11 @@ WHISPER_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_WHISPER_RPM_QUOTA", "15"))
 # Azure AD Configuration using specific variables
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
 # Replace with your Azure AD Application (Client) ID
-CLIENT_ID = os.getenv("APP_COUNTER_CLIENT_ID")
+CLIENT_ID = os.getenv("APP_COUNTER_API_CLIENT_ID")
 # Replace with the Client ID of the caller application
-CALLER_CLIENT_ID = os.getenv("APP_CALLER_CLIENT_ID") 
+AUDIENCES = os.getenv("APP_AUDIENCES")
 # Replace with your API's audience
-AUDIENCES = [CLIENT_ID, f"api://{CLIENT_ID}", CALLER_CLIENT_ID] if CLIENT_ID and CALLER_CLIENT_ID else []
+effective_audiences = re.split(',\s*', AUDIENCES) if AUDIENCES and len(AUDIENCES) > 0 else [CLIENT_ID, f"api://{CLIENT_ID}"]
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2AuthorizationCodeBearer(
@@ -60,6 +62,7 @@ oauth2_scheme = OAuth2AuthorizationCodeBearer(
     tokenUrl=f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token",
     auto_error=False
 )
+
 
 async def validate_azure_jwt(token: str, tenant_id: str, audiences: List[str]) -> Dict:
     if not tenant_id or not audiences:
@@ -109,6 +112,7 @@ async def validate_azure_jwt(token: str, tenant_id: str, audiences: List[str]) -
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+
 # Dependency to get current user
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
     if not token:
@@ -119,12 +123,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
         )
     return await validate_azure_jwt(token, TENANT_ID, AUDIENCES)
 
+
 # Initialize the token counter and rate counter services
 token_counter = TokenCounter(tokens_per_minute=TOKEN_LIMIT_PER_MINUTE)
 rate_counter = RateCounter(requests_per_minute=RATE_LIMIT_PER_MINUTE)
 embedding_token_counter = EmbeddingTokenCounter(tokens_per_minute=EMBEDDING_TOKEN_LIMIT_PER_MINUTE)
 embedding_rate_counter = EmbeddingRateCounter(requests_per_minute=EMBEDDING_RATE_LIMIT_PER_MINUTE)
 whisper_rate_counter = WhisperRateCounter(requests_per_minute=WHISPER_RATE_LIMIT_PER_MINUTE)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -185,10 +191,12 @@ async def lifespan(app: FastAPI):
         logger.info("Shutting down log monitor service")
         await app.state.log_monitor.shutdown()
 
+
 app = FastAPI(
     title="OpenAI Token Counter", 
     lifespan=lifespan
 )
+
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -199,6 +207,7 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     logger.info(f"API RESPONSE: {method} {path} - Status: {response.status_code}")
     return response
+
 
 @app.get("/")
 def read_root():
@@ -215,10 +224,12 @@ def read_root():
         "whisper_rate_limit_per_minute": WHISPER_RATE_LIMIT_PER_MINUTE
     }
 
+
 @app.get("/health")
 def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
+
 
 @app.post("/lock", response_model=TokenResponse)
 async def lock_tokens(request: TokenRequest, current_user: dict = Depends(get_current_user)):
@@ -263,6 +274,7 @@ async def lock_tokens(request: TokenRequest, current_user: dict = Depends(get_cu
         rate_request_id=rate_result["request_id"]
     )
 
+
 @app.post("/report", status_code=200)
 async def report_usage(report: TokenReport, current_user: dict = Depends(get_current_user)):
     """
@@ -295,6 +307,7 @@ async def report_usage(report: TokenReport, current_user: dict = Depends(get_cur
     logger.info(f"API REPORT SUCCESS: app={report.app_id}, token_success={success}, rate_success={rate_success}")
     return {"success": True}
 
+
 @app.post("/release", status_code=200)
 async def release_tokens(request: ReleaseRequest, current_user: dict = Depends(get_current_user)):
     """
@@ -321,6 +334,7 @@ async def release_tokens(request: ReleaseRequest, current_user: dict = Depends(g
     
     logger.info(f"API RELEASE SUCCESS: app={request.app_id}, token_success={success}, rate_success={rate_success}")
     return {"success": True}
+
 
 @app.get("/status", response_model=StatusResponse)
 async def get_status(current_user: dict = Depends(get_current_user)):
@@ -358,6 +372,7 @@ async def get_status(current_user: dict = Depends(get_current_user)):
         locked_requests=rate_status.get("locked_requests", 0),
         reset_time_seconds=effective_reset  # Use the minimum of the two reset times
     )
+
 
 # Embedding endpoints
 @app.post("/embedding/lock", response_model=TokenResponse)
@@ -402,6 +417,7 @@ async def lock_embedding_tokens(request: TokenRequest, current_user: dict = Depe
         rate_request_id=rate_result["request_id"]
     )
 
+
 @app.post("/embedding/report", status_code=200)
 async def report_embedding_usage(report: EmbeddingReport, current_user: dict = Depends(get_current_user)):
     """
@@ -440,6 +456,7 @@ async def report_embedding_usage(report: EmbeddingReport, current_user: dict = D
     logger.info(f"API EMBEDDING REPORT SUCCESS: app={report.app_id}, token_success={success}, rate_success={rate_success}")
     return {"success": True}
 
+
 @app.post("/embedding/release", status_code=200)
 async def release_embedding_tokens(request: ReleaseRequest, current_user: dict = Depends(get_current_user)):
     """
@@ -476,6 +493,7 @@ async def release_embedding_tokens(request: ReleaseRequest, current_user: dict =
     
     logger.info(f"API EMBEDDING RELEASE SUCCESS: app={request.app_id}, token_success={success}, rate_success={rate_success}")
     return {"success": True}
+
 
 @app.get("/embedding/status", response_model=EmbeddingStatusResponse)
 async def get_embedding_status(current_user: dict = Depends(get_current_user)):
@@ -514,6 +532,7 @@ async def get_embedding_status(current_user: dict = Depends(get_current_user)):
         reset_time_seconds=effective_reset  # Use the minimum of the two reset times
     )
 
+
 # Whisper endpoints
 @app.post("/whisper/lock", response_model=WhisperRateResponse)
 async def lock_whisper_rate(request: WhisperRateRequest, current_user: dict = Depends(get_current_user)):
@@ -540,6 +559,7 @@ async def lock_whisper_rate(request: WhisperRateRequest, current_user: dict = De
         request_id=result["request_id"]
     )
 
+
 @app.post("/whisper/report", status_code=200)
 async def report_whisper_usage(report: WhisperRateReport, current_user: dict = Depends(get_current_user)):
     """
@@ -560,6 +580,7 @@ async def report_whisper_usage(report: WhisperRateReport, current_user: dict = D
     logger.info(f"API WHISPER REPORT SUCCESS: app={report.app_id}")
     return {"success": True}
 
+
 @app.post("/whisper/release", status_code=200)
 async def release_whisper_rate(request: WhisperRateRelease, current_user: dict = Depends(get_current_user)):
     """
@@ -576,6 +597,7 @@ async def release_whisper_rate(request: WhisperRateRelease, current_user: dict =
     
     logger.info(f"API WHISPER RELEASE SUCCESS: app={request.app_id}")
     return {"success": True}
+
 
 @app.get("/whisper/status", response_model=WhisperRateStatusResponse)
 async def get_whisper_status(current_user: dict = Depends(get_current_user)):
