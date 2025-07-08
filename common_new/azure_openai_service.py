@@ -4,8 +4,6 @@ Azure OpenAI Service for making API calls to Azure-hosted OpenAI models.
 import os
 import tiktoken
 import instructor
-import asyncio
-import time
 from typing import Dict, List, Any, Optional, TypeVar, Type
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
@@ -20,7 +18,7 @@ load_dotenv()
 
 logger = get_logger("common")
 
-COUNTER_BASE_URL = os.getenv("COUNTER_APP_BASE_URL")
+COUNTER_BASE_URL = os.getenv("APP_COUNTER_APP_BASE_URL")
 
 # Type variable for Pydantic models
 T = TypeVar('T', bound=BaseModel)
@@ -41,7 +39,6 @@ class AzureOpenAIService:
             model: Optional default model to use. If not specified, uses the AZURE_OPENAI_DEPLOYMENT_NAME from .env.
             app_id: ID of the application using this service. Used for token tracking.
             token_counter_url: URL of the token counter service.
-            token_counter_resource_uri: Resource URI for authenticating with token counter service.
         """
         self.api_version = os.getenv("APP_OPENAI_API_VERSION")
         self.azure_endpoint = os.getenv("APP_OPENAI_API_BASE")

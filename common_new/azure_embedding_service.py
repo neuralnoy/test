@@ -21,7 +21,7 @@ load_dotenv()
 
 logger = get_logger("common")
 
-COUNTER_BASE_URL = os.getenv("COUNTER_APP_BASE_URL")
+COUNTER_BASE_URL = os.getenv("APP_COUNTER_APP_BASE_URL")
 
 class AzureEmbeddingService:
     """
