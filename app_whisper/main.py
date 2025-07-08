@@ -7,9 +7,13 @@ from common_new.service_bus import AsyncServiceBusHandler
 from common_new.logger import get_logger
 from common_new.pom_reader import get_pom_version
 from app_whisper.services.data_processor import process_data
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = get_logger("whisper")
 
+# Global time variable to track the new deployment start time
 start_time = datetime.now(timezone.utc)
 
 # Get service bus connection details from environment variables
@@ -26,6 +30,7 @@ service_bus_handler = AsyncServiceBusHandler(
     fully_qualified_namespace=FULLY_QUALIFIED_NAMESPACE
 )
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -40,7 +45,6 @@ async def lifespan(app: FastAPI):
     account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
     account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
     container_name = os.getenv("AZURE_LOGS_CONTAINER_NAME", "fla-logs")
-    retention_days = int(os.getenv("AZURE_LOGS_RETENTION_DAYS", "45"))
     scan_interval = int(os.getenv("LOG_SCAN_INTERVAL", "300"))
     app_name = os.getenv("APP_NAME")  # Get app name from environment variables
     
@@ -57,7 +61,6 @@ async def lifespan(app: FastAPI):
             account_url=account_url,
             container_name=container_name,
             app_name=app_name,  # Pass app_name to the LogMonitorService
-            retention_days=retention_days,
             scan_interval=scan_interval
         )
         
@@ -88,7 +91,9 @@ async def lifespan(app: FastAPI):
     await service_bus_handler.stop()
     logger.info("Service bus handler stopped")
 
+
 app = FastAPI(title="Whisper", lifespan=lifespan)
+
 
 @app.get("/")
 def read_root():
@@ -103,6 +108,7 @@ def read_root():
             "out": OUT_QUEUE_NAME
         }
     }
+
 
 @app.get("/health")
 def health_check():
