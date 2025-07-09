@@ -11,13 +11,14 @@ load_dotenv()
 
 logger = get_logger("common")
 
-BASE_URL = str(os.getenv("COUNTER_APP_BASE_URL"))
+BASE_URL = str(os.getenv("APP_COUNTER_APP_BASE_URL"))
 
 # Specific credentials for Counter API
 COUNTER_API_TENANT_ID = os.getenv("AZURE_TENANT_ID")
 COUNTER_API_CLIENT_ID = os.getenv("APP_COUNTER_API_CLIENT_ID")
 COUNTER_API_CLIENT_SECRET = os.getenv("APP_COUNTER_API_CLIENT_SECRET")
 COUNTER_API_SCOPE = os.getenv("APP_COUNTER_API_SCOPE")
+
 
 class TokenClient:
     """
@@ -34,6 +35,7 @@ class TokenClient:
             base_url: The base URL of the token counter service
             timeout_seconds: Timeout for HTTP requests in seconds (default: 30 minutes for long operations)
         """
+
         self.app_id = app_id
         self.base_url = base_url.rstrip("/")
         self.timeout = aiohttp.ClientTimeout(total=timeout_seconds)
@@ -63,7 +65,8 @@ class TokenClient:
             logger.error(f"Failed to acquire token for scope {COUNTER_API_SCOPE} using specific credentials: {e}")
             return {}
 
-    async def _make_request_with_retry(self, method: str, url: str, data: Optional[Dict] = None, max_retries: int = 3) -> Tuple[bool, Optional[Dict], Optional[str]]:
+    async def _make_request_with_retry(self, method: str, url: str, data: Optional[Dict] = None,
+                                       max_retries: int = 3) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
         Make HTTP request with retry logic for timeout and connection errors.
         
@@ -407,4 +410,4 @@ class TokenClient:
             return status_data
         else:
             logger.warning(f"Failed to get Whisper status: {error_message}")
-            return None 
+            return None
