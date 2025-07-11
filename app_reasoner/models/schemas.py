@@ -10,6 +10,7 @@ class InputReasoner(BaseModel):
 class OutputReasoner(BaseModel):
     """Output model for reasoner processing results."""
     id: str
+    message: str
     ai_generated: bool
     ai_hashtags: list[str]
     ai_hashtags_native: list[str]
@@ -21,15 +22,12 @@ class OutputReasoner(BaseModel):
     caller_authentication: str
     category: str
     client_lifecycle_event: str
-    dispo_code: str
     entry_point: str
     further_sentiment: dict[str, str]  # Contains SENTIMENT_ADVICE, SENTIMENT_FEEDBACK, SENTIMENT_SERVICE
     hashtags: list[str]
     live_help: str
-    message: str
     product: list[str]
     product_cluster: str
-    reason: str
     resolution: dict[str, str]  # Contains CALLBACK, CALL_TRANSFER, CONTACT_BRANCH
     resolution_flag: str
     self_service: dict[str, str]  # Contains SELF_SERVICE_GUIDANCE, SELF_SERVICE_MENTION, SELF_SERVICE_USAGE
@@ -73,7 +71,7 @@ class FurtherSentiment(BaseModel):
     )
 
 
-class Resolution(BaseModel):
+class ResolutionFlag(BaseModel):
     call_transfer: Literal["Yes", "No"] = Field(
         description="Indicates whether the call was transferred to another agent"
     )
@@ -82,18 +80,6 @@ class Resolution(BaseModel):
     )
     callback: Literal["Yes", "No"] = Field(
         description="Indicates whether the client was given a callback to solve their problem"
-    )
-
-class ResolutionFlag(BaseModel):
-    resolution_type: Literal["CLIENT MANAGER", "BRANCH", "SELF SERVICE", "RESOLVED", "OTHER"] = Field(
-        description=(
-            "Identifies the resolution scenario that best describes the transcript outcome:\n"
-            "- CLIENT MANAGER: The client is redirected to another client manager\n"
-            "- BRANCH: The client was introduced to go to the UBS branch\n"
-            "- SELF SERVICE: The client was introduced to go to the UBS website or mobile app\n"
-            "- RESOLVED: The client's problem is resolved with no further action needed\n"
-            "- OTHER: Any other scenario not covered by the above options"
-        )
     )
 
 
@@ -112,16 +98,16 @@ class ReasonerProcessingResponse(BaseModel):
         description="Indicates whether the caller was authenticated or not"
     )
     call_flags: Literal["EXTERN", "WEBSITE"] = Field(
-        description="Indicates if the client was advised to reach out to an external institution or the UBS website"
+        description="Indicates if the client tried to resolve the issue externally or on the UBS website"
     )
     call_reason: str = Field(
         description="Indicates the reason for the call"
     )
     call_triggers: str = Field(
-        description="Short, one sentence summary of the customer's reason for calling WITHOUT mentioning any PII"
+        description="Short, one sentence summary of the customer's reason for calling WITHOUT mentioning any PII or CID"
     )
     call_triggers_native: str = Field(
-        description="Short, one sentence summary of the customer's reason for calling in the native language of the transcript WITHOUT mentioning any PII"
+        description="Short, one sentence summary of the customer's reason for calling in the native language of the transcript WITHOUT mentioning any PII or CID"
     )
     caller_authentication: Literal["ACCESS_APP_AUTO", "ACCESS_APP_MANUAL", "SECURITY_QUESTIONS", "NO_AUTHENTICATION"] = Field(
         description="Indicates the authentication method used to identify the caller:\n"
@@ -172,16 +158,57 @@ class ReasonerProcessingResponse(BaseModel):
     product_cluster: str = Field(
         description="Indicates the product cluster of the call"
     )
-    entry_point: str = Field(
-        description="Indicates the entry point for the call"
+    entry_point: Literal["Mobile Banking",
+                         "E-Banking",
+                         "ubs.com",
+                         "KeyClub eStore",
+                         "Virtual Assistan",
+                         "Search",
+                         "Not mentioned"] = Field(
+        description="Indicates the entry point for the call\n"
+                    "- Mobile Banking: The caller was using the UBS mobile banking app\n"
+                    "- E-Banking: The caller was using the UBS e-banking\n"
+                    "- ubs.com: The caller was using the UBS website\n"
+                    "- KeyClub eStore: The caller was using the UBS KeyClub eStore\n"
+                    "- Virtual Assistant: The caller was using the UBS virtual assistant\n"
+                    "- Search: The caller was using the UBS search\n"
+                    "- Not mentioned: No entry point was mentioned\n"
     )
-    reason: str = Field(
-        description="Indicates the reason for the call"
+    hashtags: list[str] = Field(
+        description="List of hashtags related to the call"
     )
-    resolution: Resolution = Field(
-        description="Indicates the resolution of the call"
+    live_help: Literal["Yes", "No"] = Field(
+        description="Indicates if the screen sharing was used to help the client"
     )
-    resolution_flag: ResolutionFlag = Field(
-        description="Indicates the resolution flag of the call"
+    further_sentiment: FurtherSentiment
+    product: list[str] = Field(
+        description="List of products mentioned in the call"
     )
-
+    product_cluster: str = Field(
+        description="Indicates the product cluster of the call"
+    )
+    resolution: ResolutionFlag
+    resolution_flag: Literal["CLIENT MANAGER", "BRANCH", "SELF SERVICE", "RESOLVED", "OTHER"] = Field(
+        description=(
+            "Identifies the resolution scenario that best describes the transcript outcome:\n"
+            "- CLIENT MANAGER: The client is redirected to another client manager\n"
+            "- BRANCH: The client was introduced to go to the UBS branch\n"
+            "- SELF SERVICE: The client was introduced to go to the UBS website or mobile app\n"
+            "- RESOLVED: The client's problem is resolved with no further action needed\n"
+            "- OTHER: Any other scenario not covered by the above options"
+        )
+    )
+    self_service: SelfServiceFlag
+    sentiment: Literal["positive", "negative", "neutral"] = Field(
+        description="Indicates the overall sentiment of the call"
+    )
+    speaker: Speaker
+    subtopics: str = Field(
+        description="Subtopic related to the call"
+    )
+    summary: str = Field(
+        description="Detailed summary of the call transcript WITHOUT mentioning any PII or CID"
+    )
+    summary_native: str = Field(
+        description="Detailed summary of the call transcript in the native language WITHOUT mentioning any PII or CID"
+    )
