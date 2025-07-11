@@ -13,23 +13,15 @@ PII or CID includes but is not limited to:
 - Addresses and locations
 - Monetary values and account balances
 - Email addresses, phone numbers
-- Any other information that could identify a specific client
 - Customer ID numbers
 - Account numbers
 - Contract numbers
 - Membership IDs
 - Reference numbers
 - Case numbers
+- Any other information that could identify a specific client
 
-Your output must be in valid JSON format with the following structure:
-{
-  "summary": "concise summary of the call transcript with all PII removed",
-  "reason": "#predefinedReason",
-  "ai_reason": "#aiGeneratedReason",
-  "contains_pii_or_cid": "Yes" or "No"
-}
-
-For the predefined reason, you must select exactly one from this list:
+Your output must be in valid JSON format.
 """
 
 # User prompt templates
