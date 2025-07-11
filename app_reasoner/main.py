@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI
 from common_new.service_bus import AsyncServiceBusHandler
-from common_new.logger import get_logger, shutdown_logging
+from common_new.logger import get_logger
 from common_new.pom_reader import get_pom_version
 from app_reasoner.services.data_processor import process_data
 
@@ -14,8 +14,8 @@ start_time = datetime.now(timezone.utc)
 
 # Get service bus connection details from environment variables
 FULLY_QUALIFIED_NAMESPACE = os.getenv("SERVICE_BUS_NAMESPACE")
-IN_QUEUE_NAME = os.getenv("REASONER_IN_QUEUE", "reasoner-in")
-OUT_QUEUE_NAME = os.getenv("REASONER_OUT_QUEUE", "reasoner-out")
+IN_QUEUE_NAME = os.getenv("APP_SB_IN_QUEUE", "reason-iq")
+OUT_QUEUE_NAME = os.getenv("APP_SB_OUT_QUEUE", "reason-oq")
 
 # Initialize service bus handler with DefaultAzureCredential
 logger.info(f"Using DefaultAzureCredential for Service Bus authentication with namespace: {FULLY_QUALIFIED_NAMESPACE}")
@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events for the service bus handler.
     """
     # Startup logic
-    logger.info("Starting Reasoner app")
+    logger.info("Starting Feedback Form Processor app")
     
     # Initialize log monitoring service if configured
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI):
     yield  # This is where the app runs
     
     # Shutdown logic
-    logger.info("Shutting down Reasoner app")
+    logger.info("Shutting down Call Reasoner app")
     
     # Shut down the log monitor if it was initialized
     if hasattr(app.state, "log_monitor"):
@@ -87,16 +87,13 @@ async def lifespan(app: FastAPI):
     # Stop the service bus handler
     await service_bus_handler.stop()
     logger.info("Service bus handler stopped")
-    
-    # Shutdown logging service to release file locks
-    shutdown_logging()
 
-app = FastAPI(title="Reasoner", lifespan=lifespan)
+app = FastAPI(title="Feedback Form Processor", lifespan=lifespan)
 
 @app.get("/")
 def read_root():
     return {
-        "app": "Reasoner",
+        "app": "Feedback Form Processor",
         "version": get_pom_version(),
         "status": "running",
         "start_time": start_time.isoformat(),
@@ -110,4 +107,4 @@ def read_root():
 @app.get("/health")
 def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service_bus_running": service_bus_handler.running} 
+    return {"status": "healthy", "service_bus_running": service_bus_handler.running}

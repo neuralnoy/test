@@ -7,15 +7,13 @@ SYSTEM_PROMPT = """You are a specialized AI assistant that processes call transc
 3. Generate a secondary AI-suggested reason that's relevant but not in the predefined list.
 4. Detect if the original call transcript contains any PII or CID (Customer Identifiers).
 
-PII includes but is not limited to:
+PII or CID includes but is not limited to:
 - Names (first names, last names)
 - ID numbers (account numbers, user IDs, etc.)
 - Addresses and locations
 - Monetary values and account balances
 - Email addresses, phone numbers
 - Any other information that could identify a specific client
-
-CID includes but is not limited to:
 - Customer ID numbers
 - Account numbers
 - Contract numbers
