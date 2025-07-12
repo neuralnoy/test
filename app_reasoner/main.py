@@ -40,7 +40,6 @@ async def lifespan(app: FastAPI):
     account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
     account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
     container_name = os.getenv("AZURE_LOGS_CONTAINER_NAME", "application-logs")
-    retention_days = int(os.getenv("AZURE_LOGS_RETENTION_DAYS", "30"))
     scan_interval = int(os.getenv("LOG_SCAN_INTERVAL", "60"))
     app_name = os.getenv("APP_NAME")  # Get app name from environment variables
     
@@ -57,7 +56,6 @@ async def lifespan(app: FastAPI):
             account_url=account_url,
             container_name=container_name,
             app_name=app_name,  # Pass app_name to the LogMonitorService
-            retention_days=retention_days,
             scan_interval=scan_interval
         )
         
