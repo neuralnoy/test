@@ -8,7 +8,6 @@ import time
 import psutil
 from pathlib import Path
 from typing import Optional, Set, List, Tuple
-from datetime import datetime
 
 from common_new.logger import get_logger, get_app_name
 from common_new.blob_storage import AsyncBlobStorageUploader
@@ -29,7 +28,6 @@ class LogMonitorService:
         container_name: str = "fla-logs",
         app_name: Optional[str] = None,
         process_name: Optional[str] = None,
-        retention_days: int = 7,
         scan_interval: int = 60,
         enable_orphan_cleanup: bool = True,
         delete_after_upload: bool = True
@@ -47,7 +45,6 @@ class LogMonitorService:
         self.container_name = container_name
         self.app_name = app_name or get_app_name()
         self.process_name = process_name or os.getenv('PROCESS_NAME', f"worker-{os.getpid()}")
-        self.retention_days = retention_days
         self.scan_interval = scan_interval
         self.enable_orphan_cleanup = enable_orphan_cleanup
         self.delete_after_upload = delete_after_upload

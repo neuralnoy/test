@@ -14,8 +14,8 @@ start_time = datetime.now(timezone.utc)
 
 # Get service bus connection details from environment variables
 FULLY_QUALIFIED_NAMESPACE = os.getenv("SERVICE_BUS_NAMESPACE")
-IN_QUEUE_NAME = os.getenv("FEEDBACK_FORM_IN_QUEUE", "feedback-form-in")
-OUT_QUEUE_NAME = os.getenv("FEEDBACK_FORM_OUT_QUEUE", "feedback-form-out")
+IN_QUEUE_NAME = os.getenv("APP_SB_IN_QUEUE", "form-iq")
+OUT_QUEUE_NAME = os.getenv("APP_SB_OUT_QUEUE", "form-oq")
 
 # Initialize service bus handler with DefaultAzureCredential
 logger.info(f"Using DefaultAzureCredential for Service Bus authentication with namespace: {FULLY_QUALIFIED_NAMESPACE}")
@@ -40,7 +40,6 @@ async def lifespan(app: FastAPI):
     account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
     account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
     container_name = os.getenv("AZURE_LOGS_CONTAINER_NAME", "application-logs")
-    retention_days = int(os.getenv("AZURE_LOGS_RETENTION_DAYS", "30"))
     scan_interval = int(os.getenv("LOG_SCAN_INTERVAL", "60"))
     app_name = os.getenv("APP_NAME")  # Get app name from environment variables
     
@@ -57,7 +56,6 @@ async def lifespan(app: FastAPI):
             account_url=account_url,
             container_name=container_name,
             app_name=app_name,  # Pass app_name to the LogMonitorService
-            retention_days=retention_days,
             scan_interval=scan_interval
         )
         

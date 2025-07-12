@@ -9,6 +9,8 @@ load_dotenv()
 
 logging.getLogger("azure").setLevel(logging.WARNING)
 
+retention_days = int(os.getenv("APP_LOGS_RETENTION_DAYS", "30"))
+
 def get_app_name() -> str:
     """
     Get the application name from environment variable.
@@ -69,7 +71,7 @@ def get_logger(name: str, log_level: Optional[int] = None) -> logging.Logger:
                 filename=file_path,
                 when='midnight',
                 interval=1,
-                backupCount=30,  # Keep logs for 30 days
+                backupCount=retention_days,
                 encoding='utf-8'
             )
             
