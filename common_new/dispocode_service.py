@@ -19,7 +19,7 @@ class DispocodeService:
         self._is_running = False
 
         # Define paths
-        self.project_root = Path(__file__).resolve().parent.parent.parent
+        self.project_root = Path(__file__).resolve().parent.parent
         self.json_path = self.project_root / "dispocodes.json"
         self.lock_path = self.project_root / "dispocodes.json.lock"
 
@@ -83,7 +83,7 @@ class DispocodeService:
             logger.error("Invalid data format received: 'dispoCodes' key missing or not a list.")
             return
 
-        new_content = data["dispoCodes"]
+        new_content = {"dispoCodes": data["dispoCodes"]}
         lock = FileLock(self.lock_path)
 
         try:
