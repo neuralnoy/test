@@ -83,7 +83,7 @@ class DispocodeService:
             logger.error("Invalid data format received: 'dispoCodes' key missing or not a list.")
             return
 
-        new_content = {"dispoCodes": data["dispoCodes"]}
+        new_content = data["dispoCodes"]
         lock = FileLock(self.lock_path)
 
         try:
