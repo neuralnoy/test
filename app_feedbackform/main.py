@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from common_new.service_bus import AsyncServiceBusHandler
 from common_new.logger import get_logger
 from common_new.pom_reader import get_pom_version
+from common_new.dispocode_service import DispocodeService
 from app_feedbackform.services.data_processor import process_data
 
 logger = get_logger("feedback_form_app")
@@ -26,6 +27,8 @@ service_bus_handler = AsyncServiceBusHandler(
     fully_qualified_namespace=FULLY_QUALIFIED_NAMESPACE
 )
 
+dispocode_service: DispocodeService | None = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -33,8 +36,18 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events for the service bus handler.
     """
     # Startup logic
+    global dispocode_service
     logger.info("Starting Feedback Form Processor app")
-    
+
+    # Initialize and start the DispocodeService
+    dispocode_endpoint = os.getenv("DISPOCODE_ENDPOINT_URL")
+    if dispocode_endpoint:
+        dispocode_service = DispocodeService(endpoint_url=dispocode_endpoint)
+        await dispocode_service.start()
+        app.state.dispocode_service = dispocode_service
+    else:
+        logger.warning("DISPOCODE_ENDPOINT_URL not set. DispocodeService will not run.")
+
     # Initialize log monitoring service if configured
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
     account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
@@ -81,7 +94,12 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, "log_monitor"):
         logger.info("Shutting down log monitor service")
         await app.state.log_monitor.shutdown()
-    
+
+    # Stop the dispocode service if it was initialized
+    if dispocode_service:
+        logger.info("Shutting down DispocodeService.")
+        await dispocode_service.stop()
+
     # Stop the service bus handler
     await service_bus_handler.stop()
     logger.info("Service bus handler stopped")
@@ -105,4 +123,9 @@ def read_root():
 @app.get("/health")
 def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service_bus_running": service_bus_handler.running}
+    dispocode_running = dispocode_service._is_running if dispocode_service else False
+    return {
+        "status": "healthy", 
+        "service_bus_running": service_bus_handler.running,
+        "dispocode_service_running": dispocode_running
+    }

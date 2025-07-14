@@ -23,19 +23,34 @@ USER_PROMPT = get_user_prompt()
 def _format_hashtag_options() -> str:
     """
     Format the hashtag mapping into a string for the prompt.
+    Extracts hashtags and categories related to "Forms".
     
     Returns:
         str: Formatted hashtag options
     """
-    hashtag_map = get_hashtag_mapping()
+    mapping_table = get_hashtag_mapping()
     options = []
     
-    for tag, details in hashtag_map.items():
-        option = f"#{tag}: {details['description']}"
-        if details.get('examples'):
-            examples = ", ".join([f'"{ex}"' for ex in details['examples']])
-            option += f" (examples: {examples})"
-        options.append(option)
+    # Filter for Forms-related entries
+    forms_entries = [entry for entry in mapping_table if entry.get('relatedTo') == 'Forms']
+    
+    # Extract hashtags
+    hashtags = [entry for entry in forms_entries if entry.get('typeName') == 'Hashtag']
+    categories = [entry for entry in forms_entries if entry.get('typeName') == 'Category']
+    
+    # Format hashtags
+    if hashtags:
+        options.append("Available Hashtags:")
+        for hashtag in hashtags:
+            option = f"{hashtag['typeValue']}: {hashtag['description']}"
+            options.append(option)
+    
+    # Format categories
+    if categories:
+        options.append("\nAvailable Categories:")
+        for category in categories:
+            option = f"{category['typeValue']}: {category['description']}"
+            options.append(option)
     
     return "\n".join(options)
 

@@ -3,46 +3,161 @@ Hashtag mapping for the feedback form application.
 This is a temporary generic mapping and will be replaced with actual business logic later.
 """
 
-HASHTAG_MAPPING = {
-    "product": {
-        "description": "Feedback related to product features or functionality",
-        "category": "A"
+MAPPING_TABLE = [
+    {
+        "id": "P01",
+        "typeName": "Product",
+        "typeValue": "CREDIT_CARD",
+        "relatedTo": "Calls",
+        "description": "Problem with credit card"
     },
-    "service": {
-        "description": "Feedback related to customer service",
-        "category": "B"
+    {
+        "id": "C01",
+        "typeName": "Category",
+        "typeValue": "CARDS",
+        "relatedTo": "Calls",
+        "description": "Problem with cards" 
     },
-    "usability": {
-        "description": "Feedback related to usability and user experience",
-        "category": "C"
+    {
+        "id": "T01",
+        "typeName": "Topic",
+        "typeValue": "CREDIT_CARD_LOST_OR_STOLEN",
+        "relatedTo": "Calls",
+        "description": "User lost or had their credit card stolen"
     },
-    "performance": {
-        "description": "Feedback related to system performance",
-        "category": "A"
+    {
+        "id": "S01",
+        "typeName": "Subtopic",
+        "typeValue": "American Express",
+        "relatedTo": "Calls",
+        "description": "Users complain is related to American Express" 
     },
-    "suggestion": {
-        "description": "Suggestions for improvement",
-        "category": "B"
+    {
+        "id": "H01",
+        "typeName": "Hashtag",
+        "typeValue": "#CreditCardIssue",
+        "relatedTo": "Calls",
+        "description": "Problem with credit card" 
     },
-    "bug": {
-        "description": "Reports of bugs or issues",
-        "category": "C"
+    {
+        "id": "P02",
+        "typeName": "Product",
+        "typeValue": "LOAN",
+        "relatedTo": "Calls",
+        "description": "User has a problem with their credit card"
     },
-    "positive": {
-        "description": "General positive feedback",
-        "category": "A"
+    {
+        "id": "C02",
+        "typeName": "Category",
+        "typeValue": "LOANS",
+        "relatedTo": "Calls",
+        "description": "Problem with cards" 
     },
-    "negative": {
-        "description": "General negative feedback",
-        "category": "B"
+    {
+        "id": "T02",
+        "typeName": "Topic",
+        "typeValue": "LOAN_REPAYMENT",
+        "relatedTo": "Calls",
+        "description": "Problem with loan"
+    },
+    {
+        "id": "S02",
+        "typeName": "Subtopic",
+        "typeValue": "Mortgage",
+        "relatedTo": "Calls",
+        "description": "Problem with mortgage" 
+    },
+    {
+        "id": "H02",
+        "typeName": "Hashtag",
+        "typeValue": "#MortgageIssue",
+        "relatedTo": "Calls",
+        "description": "Problem with mortgage" 
+    },
+    {
+        "id": "P03",
+        "typeName": "Product",
+        "typeValue": "MORTGAGE",
+        "relatedTo": "Calls",
+        "description": "Problem with mortgage" 
+    },
+    {
+        "id": "C03",
+        "typeName": "Category",
+        "typeValue": "MORTGAGES",
+        "relatedTo": "Calls",
+        "description": "Problem with mortgages" 
+    },
+    {
+        "id": "T03",
+        "typeName": "Topic",
+        "typeValue": "MORTGAGE_REPAYMENT",
+        "relatedTo": "Calls",
+        "description": "Problem with mortgages" 
+    },
+    {
+        "id": "S03",
+        "typeName": "Subtopic",
+        "typeValue": "Mortgage",
+        "relatedTo": "Calls",
+        "description": "Problem with mortgages" 
+    },
+    {
+        "id": "H03",
+        "typeName": "Hashtag",
+        "typeValue": "#MortgageIssue",
+        "relatedTo": "Calls",
+        "description": "Problem with mortgages" 
+    },
+    {
+        "id": "C04",
+        "typeName": "Category",
+        "typeValue": "CARDS",
+        "relatedTo": "Forms",
+        "description": "Problem with cards" 
+    },
+    {
+        "id": "H04",
+        "typeName": "Hashtag",
+        "typeValue": "#CreditCardIssue",
+        "relatedTo": "Forms",
+        "description": "Problem with credit card" 
+    },
+    {
+        "id": "C05",
+        "typeName": "Category",
+        "typeValue": "LOANS",
+        "relatedTo": "Forms",
+        "description": "Problem with cards" 
+    },
+    {
+        "id": "H05",
+        "typeName": "Hashtag",
+        "typeValue": "#MortgageIssue",
+        "relatedTo": "Forms",
+        "description": "Problem with mortgage" 
+    },
+    {
+        "id": "C06",
+        "typeName": "Category",
+        "typeValue": "MORTGAGES",
+        "relatedTo": "Forms",
+        "description": "Problem with mortgages" 
+    },
+    {
+        "id": "H04",
+        "typeName": "Hashtag",
+        "typeValue": "#CreditCardIssue",
+        "relatedTo": "Forms",
+        "description": "Problem with credit card" 
     }
-}
+]
 
 def get_hashtag_mapping():
     """
-    Get the hashtag mapping dictionary.
+    Get the reason mapping dictionary.
     
     Returns:
-        dict: The hashtag mapping dictionary
+        dict: The reason mapping dictionary
     """
-    return HASHTAG_MAPPING 
+    return MAPPING_TABLE 
