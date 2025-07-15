@@ -1,10 +1,23 @@
 import asyncio
 import json
 import os
+import random
 from pathlib import Path
 import aiohttp
 from filelock import FileLock, Timeout
+
+from azure.search.documents.indexes.models import (
+    SimpleField,
+    SearchableField,
+    SearchField,
+    VectorSearch,
+    HnswVectorSearchAlgorithmConfiguration,
+    VectorSearchProfile,
+)
+
 from common_new.logger import get_logger
+from common_new.azure_search_service import AzureSearchService
+from common_new.azure_embedding_service import AzureEmbeddingService
 
 logger = get_logger("dispocode_service")
 
@@ -22,6 +35,12 @@ class DispocodeService:
         self.project_root = Path(__file__).resolve().parent.parent
         self.json_path = self.project_root / "dispocodes.json"
         self.lock_path = self.project_root / "dispocodes.json.lock"
+
+        # Initialize Azure services
+        self.search_service = AzureSearchService(index_name="dispo_test")
+        self.embedding_service = AzureEmbeddingService()
+        self.vector_field_name = "description_vector"
+        self.vector_dimensions = 3072
 
     async def start(self):
         if self._is_running:
@@ -51,21 +70,25 @@ class DispocodeService:
         while self._is_running:
             await self._fetch_and_process_dispocodes()
             try:
-                await asyncio.sleep(self.interval_seconds)
+                # Add a random jitter to the sleep interval to prevent thundering herd
+                jitter = random.uniform(0, 60)  # 0 to 60 seconds
+                sleep_duration = self.interval_seconds + jitter
+                logger.debug(f"Sleeping for {sleep_duration:.2f} seconds (interval + jitter).")
+                await asyncio.sleep(sleep_duration)
             except asyncio.CancelledError:
                 break
 
     async def _fetch_and_process_dispocodes(self):
         logger.info("Starting to fetch and process dispocodes.")
+        remote_data = None
         for attempt in range(self.max_retries):
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(self.endpoint_url) as response:
                         response.raise_for_status()
-                        data = await response.json()
+                        remote_data = await response.json()
                         logger.info("Successfully fetched data from the endpoint.")
-                        await self._write_to_file(data)
-                        return
+                        break
             except aiohttp.ClientError as e:
                 logger.error(f"Attempt {attempt + 1} failed with network error: {e}")
             except json.JSONDecodeError as e:
@@ -74,45 +97,114 @@ class DispocodeService:
                 logger.error(f"An unexpected error occurred on attempt {attempt + 1}: {e}")
 
             if attempt < self.max_retries - 1:
-                await asyncio.sleep(5)  # Wait before retrying
+                await asyncio.sleep(5)
         
-        logger.error(f"All {self.max_retries} attempts to fetch dispocodes failed.")
+        await self._process_and_store_data(remote_data)
 
-    async def _write_to_file(self, data):
-        if "dispoCodes" not in data or not isinstance(data["dispoCodes"], list):
-            logger.error("Invalid data format received: 'dispoCodes' key missing or not a list.")
-            return
-
-        new_content = data["dispoCodes"]
+    async def _process_and_store_data(self, remote_data: dict | None):
         lock = FileLock(self.lock_path)
-
         try:
-            with lock.acquire(timeout=10):
+            with lock.acquire(timeout=20):
                 logger.info("Acquired lock for dispocodes.json.")
-                
-                existing_content = []
+
+                local_dispocodes = []
                 if self.json_path.exists():
                     try:
                         with open(self.json_path, "r") as f:
-                            existing_content = json.load(f)
+                            local_dispocodes = json.load(f)
                     except (json.JSONDecodeError, IOError) as e:
                         logger.warning(f"Could not read or parse existing dispocodes.json: {e}")
 
-                if new_content != existing_content:
-                    with open(self.json_path, "w") as f:
-                        json.dump(new_content, f, indent=4)
-                    logger.info("dispocodes.json has been updated.")
+                source_data = []
+                if remote_data and "dispoCodes" in remote_data:
+                    logger.info("Using fresh data from remote endpoint.")
+                    new_dispocodes = remote_data["dispoCodes"]
+                    if new_dispocodes != local_dispocodes:
+                        with open(self.json_path, "w") as f:
+                            json.dump(new_dispocodes, f, indent=4)
+                        logger.info("dispocodes.json has been updated with new remote data.")
+                        source_data = new_dispocodes
+                    else:
+                        logger.info("No changes detected between remote and local data.")
+                        source_data = local_dispocodes
                 else:
-                    logger.info("No changes detected in dispocodes.json. File not updated.")
-        
+                    logger.warning("Remote data not available. Using local dispocodes.json as fallback.")
+                    source_data = local_dispocodes
+
+                if not source_data:
+                    logger.error("No dispocode data available from remote or local sources.")
+                    return
+
+                is_first_run = not await self.search_service.index_exists()
+                if is_first_run:
+                    logger.info(f"Index '{self.search_service.index_name}' does not exist. Creating and indexing all documents.")
+                    await self._create_search_index()
+                    docs_to_index = source_data
+                else:
+                    logger.info("Index exists. Checking for new documents to add.")
+                    search_results = await self.search_service.search_documents(search_text="*", select=["id"])
+                    existing_ids = {doc['id'] for doc in search_results}
+                    docs_to_index = [item for item in source_data if item['id'] not in existing_ids]
+
+                if docs_to_index:
+                    logger.info(f"Found {len(docs_to_index)} new documents to index.")
+                    await self._embed_and_upload_documents(docs_to_index)
+                else:
+                    logger.info("No new documents to index.")
+
         except Timeout:
             logger.error("Could not acquire lock on dispocodes.json. Another process may be holding it.")
         except Exception as e:
-            logger.error(f"An error occurred during file write: {e}")
+            logger.error(f"An error occurred during data processing or indexing: {e}", exc_info=True)
         finally:
             if lock.is_locked:
                 lock.release()
                 logger.info("Released lock for dispocodes.json.")
+
+    async def _create_search_index(self):
+        fields = [
+            SimpleField(name="id", type="Edm.String", key=True, filterable=True, sortable=True),
+            SearchableField(name="category", filterable=True, sortable=True),
+            SearchableField(name="typeName", filterable=True, sortable=True),
+            SearchableField(name="typeValue", filterable=True, sortable=True),
+            SearchableField(name="hashtags", filterable=True),
+            SearchableField(name="description"),
+            SearchField(
+                name=self.vector_field_name,
+                type="Collection(Edm.Single)",
+                searchable=True,
+                vector_search_dimensions=self.vector_dimensions,
+                vector_search_profile_name="vector-profile",
+            ),
+        ]
+        
+        vector_search = VectorSearch(
+            profiles=[VectorSearchProfile(name="vector-profile", algorithm_configuration_name="vector-config")],
+            algorithms=[HnswVectorSearchAlgorithmConfiguration(name="vector-config")]
+        )
+        
+        await self.search_service.create_index(
+            fields=fields,
+            vector_search=vector_search,
+            vector_field_name=self.vector_field_name,
+            vector_dimensions=self.vector_dimensions
+        )
+
+    async def _embed_and_upload_documents(self, documents: list):
+        descriptions = [doc["description"] for doc in documents]
+        
+        if not descriptions:
+            return
+
+        logger.info(f"Creating embeddings for {len(descriptions)} descriptions...")
+        embeddings = await self.embedding_service.create_embedding_batch(texts=descriptions)
+        
+        for i, doc in enumerate(documents):
+            doc[self.vector_field_name] = embeddings[i]
+
+        logger.info("Uploading documents to Azure AI Search...")
+        await self.search_service.upload_documents(documents)
+        logger.info(f"Successfully uploaded {len(documents)} documents.")
 
 def get_dispocode_service():
     endpoint_url = os.getenv("DISPOCODE_ENDPOINT_URL")
