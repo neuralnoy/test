@@ -12,14 +12,11 @@ from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
     SearchIndex,
-    SimpleField,
-    SearchableField,
     VectorSearch,
-    HnswVectorSearchAlgorithmConfiguration,
+    VectorSearchAlgorithmConfiguration,
     VectorSearchAlgorithmKind,
     VectorSearchAlgorithmMetric,
     VectorSearchProfile,
-    VectorSearchAlgorithmConfiguration,
     SearchField
 )
 from azure.search.documents.models import VectorizedQuery
@@ -327,7 +324,7 @@ class AzureSearchService:
             if vector_search is None:
                 vector_search = VectorSearch(
                     algorithms=[
-                        HnswVectorSearchAlgorithmConfiguration(
+                        VectorSearchAlgorithmConfiguration(
                             name="vector-config",
                             kind=VectorSearchAlgorithmKind.HNSW,
                             parameters={

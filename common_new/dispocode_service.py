@@ -11,7 +11,7 @@ from azure.search.documents.indexes.models import (
     SearchableField,
     SearchField,
     VectorSearch,
-    HnswVectorSearchAlgorithmConfiguration,
+    VectorSearchAlgorithmConfiguration,
     VectorSearchProfile,
 )
 
@@ -178,9 +178,13 @@ class DispocodeService:
             ),
         ]
         
+        vector_search_algorithm = VectorSearchAlgorithmConfiguration(
+            name="vector-config",
+        )
+
         vector_search = VectorSearch(
             profiles=[VectorSearchProfile(name="vector-profile", algorithm_configuration_name="vector-config")],
-            algorithms=[HnswVectorSearchAlgorithmConfiguration(name="vector-config")]
+            algorithms=[vector_search_algorithm]
         )
         
         await self.search_service.create_index(
