@@ -1,11 +1,10 @@
-# data_processor.py
 import json
 from typing import Dict, Any, Optional
 from common_new.logger import get_logger
 from app_feedbackform.models.schemas import InputFeedbackForm, OutputFeedbackForm, InternalFeedbackResult
 from app_feedbackform.services.prompts.feedback_processor import process_feedback_structured
 
-logger = get_logger("feedback_form_processor")
+logger = get_logger("services")
 
 async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
     """
@@ -37,21 +36,22 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
                 ai_hashtag=result.ai_hashtag,
                 hashtag=result.hashtag,
                 summary=result.summary,
-                message="SUCCESS",
+                category=result.category,
                 contains_pii_or_cid=result.contains_pii_or_cid
+                message="SUCCESS",
             )
             
             # Log the PII/CID detection information
             logger.info(f"Feedback form {form_data.id} contains PII or CID: {internal_result.contains_pii_or_cid}")
             
             # Create output data structure using existing Pydantic model with SUCCESS message
-            # This is what will be sent to the queue (without the contains_pii_or_cid field)
             output_data = OutputFeedbackForm(
                 id=form_data.id,
                 taskId=form_data.taskId,
                 ai_hashtag=result.ai_hashtag,
                 hashtag=result.hashtag,
                 summary=result.summary,
+                category=result.category,
                 message="SUCCESS"
             )
             
@@ -69,6 +69,7 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
                 ai_hashtag=result.ai_hashtag,
                 hashtag=result.hashtag,
                 summary=result.summary,
+                category=result.category,
                 message="failed"
             )
             
@@ -90,6 +91,7 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
                 ai_hashtag="#error",
                 hashtag="#error",
                 summary=f"JSON parsing error: {str(e)}",
+                category="error",
                 message="failed"
             )
             return output_data.model_dump()
@@ -111,6 +113,7 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
                 ai_hashtag="#error",
                 hashtag="#error",
                 summary=f"Processing error: {str(e)}",
+                category="error",
                 message="failed"
             )
             return output_data.model_dump()

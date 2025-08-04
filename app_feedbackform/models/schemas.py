@@ -1,18 +1,23 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import Literal
+from typing import Literal, Optional
+
 
 class InputFeedbackForm(BaseModel):
+    """Input data, which we receive from the queue"""
     id: str
-    taskId: str
+    taskId: Optional[str] = None
     language: str
     text: str
 
+
 class OutputFeedbackForm(BaseModel):
+    """Output data, which we send to the queue"""
     id: str
-    taskId: str
-    ai_hashtag: str
+    taskId: Optional[str] = None
     hashtag: str
+    category: str
     summary: str
+    ai_hashtag: str
     message: str
 
 
@@ -39,6 +44,10 @@ class FeedbackProcessingResponse(BaseModel):
         description="Whether the original feedback contains PII or CID"
     )
     
+    category: str = Field(
+        description="Mapped category according to predefined hashtag",
+    )
+
     @field_validator('hashtag')
     def validate_hashtag_starts_with_hash(cls, v):
         """Ensure hashtag starts with #."""
