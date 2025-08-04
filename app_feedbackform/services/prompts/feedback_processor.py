@@ -87,27 +87,9 @@ async def process_feedback_structured(text: str, max_retries: int = 3) -> Tuple[
             
         except ValidationError as e:
             logger.error(f"Validation error in AI response: {str(e)}")
-            # Create a fallback response
-            fallback_response = FeedbackProcessingResponse(
-                summary="Failed to process feedback due to validation errors",
-                hashtag="#error",
-                ai_hashtag="#validation_failed",
-                category="failed",
-                contains_pii_or_cid="No"
-            )
-            return False, fallback_response
             
         except Exception as e:
             logger.error(f"Error processing feedback: {str(e)}")
-            # Create a fallback response
-            fallback_response = FeedbackProcessingResponse(
-                summary="Failed to process feedback because of validation errors",
-                hashtag="#error", 
-                ai_hashtag="#processing_failed",
-                category="failed",
-                contains_pii_or_cid="No"
-            )
-            return False, fallback_response
         
         if attempt < max_retries - 1:
             logger.info(f"Retrying feedback processing (attempt {attempt + 2}/{max_retries})")
