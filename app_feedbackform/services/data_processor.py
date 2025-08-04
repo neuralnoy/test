@@ -37,7 +37,7 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
                 hashtag=result.hashtag,
                 summary=result.summary,
                 category=result.category,
-                contains_pii_or_cid=result.contains_pii_or_cid
+                contains_pii_or_cid=result.contains_pii_or_cid,
                 message="SUCCESS",
             )
             
