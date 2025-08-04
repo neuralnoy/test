@@ -8,15 +8,19 @@ from common_new.logger import get_logger
 from common_new.pom_reader import get_pom_version
 from common_new.dispocode_service import DispocodeService
 from app_feedbackform.services.data_processor import process_data
+from dotenv import load_dotenv
 
-logger = get_logger("feedback_form_app")
+load_dotenv()
 
+logger = get_logger("app_feedbackform")
+
+# Global time variable to track the new deployment start time
 start_time = datetime.now(timezone.utc)
 
 # Get service bus connection details from environment variables
-FULLY_QUALIFIED_NAMESPACE = os.getenv("SERVICE_BUS_NAMESPACE")
-IN_QUEUE_NAME = os.getenv("APP_SB_IN_QUEUE", "form-iq")
-OUT_QUEUE_NAME = os.getenv("APP_SB_OUT_QUEUE", "form-oq")
+FULLY_QUALIFIED_NAMESPACE = os.getenv("APP_SB_FULLY_QUALIFIED_NAMESPACE")
+IN_QUEUE_NAME = os.getenv("APP_SERVICE_IN_QUEUE", "form_iq")
+OUT_QUEUE_NAME = os.getenv("APP_SERVICE_OUT_QUEUE", "form_oq")
 
 # Initialize service bus handler with DefaultAzureCredential
 logger.info(f"Using DefaultAzureCredential for Service Bus authentication with namespace: {FULLY_QUALIFIED_NAMESPACE}")
@@ -28,6 +32,7 @@ service_bus_handler = AsyncServiceBusHandler(
 )
 
 dispocode_service: DispocodeService | None = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,11 +55,11 @@ async def lifespan(app: FastAPI):
 
     # Initialize log monitoring service if configured
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
-    account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
-    account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
-    container_name = os.getenv("AZURE_LOGS_CONTAINER_NAME", "application-logs")
-    scan_interval = int(os.getenv("LOG_SCAN_INTERVAL", "60"))
-    app_name = os.getenv("APP_NAME")  # Get app name from environment variables
+    account_name = os.getenv("APP_BLOB_ACCOUNT_NAME")
+    account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL", None)
+    container_name = os.getenv("APP_BLOB_CONTAINER_NAME_LOGS", "fla-logs")
+    scan_interval = int(os.getenv("APP_LOG_SCAN_INTERVAL", "300"))
+    app_name = os.getenv("APP_NAME_FOR_LOGGER")  # Get app name from environment variables
     
     # Only initialize if blob storage is configured (either by URL or account name)
     if account_url or account_name:
@@ -104,7 +109,9 @@ async def lifespan(app: FastAPI):
     await service_bus_handler.stop()
     logger.info("Service bus handler stopped")
 
+
 app = FastAPI(title="Feedback Form Processor", lifespan=lifespan)
+
 
 @app.get("/")
 def read_root():
@@ -119,6 +126,7 @@ def read_root():
             "out": OUT_QUEUE_NAME
         }
     }
+
 
 @app.get("/health")
 def health_check():
