@@ -3,7 +3,7 @@ Retry helper utilities for rate-limited API calls.
 """
 import asyncio
 import functools
-from typing import Any, Callable, TypeVar, Optional, Dict
+from typing import Any, Callable, TypeVar, Optional, Dict, Awaitable
 from common_new.logger import get_logger
 
 logger = get_logger("common")
@@ -11,7 +11,7 @@ logger = get_logger("common")
 T = TypeVar('T')
 
 async def with_token_limit_retry(
-    func: Callable[..., T],
+    func: Callable[..., Awaitable[T]],
     token_client: Any,
     max_retries: int = 3,
     *args: Any,
@@ -112,7 +112,7 @@ def with_token_limit_retry_decorator(token_client: Any, max_retries: int = 3):
     return decorator 
 
 async def with_whisper_rate_limit_retry(
-    func: Callable[..., T],
+    func: Callable[..., Awaitable[T]],
     whisper_token_client: Any,
     max_retries: int = 3,
     *args: Any,
