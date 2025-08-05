@@ -8,6 +8,7 @@ import os
 from typing import List, Dict, Any, Optional, Union
 
 from azure.identity import DefaultAzureCredential
+from azure.core.credentials import AccessToken, TokenCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
@@ -29,6 +30,20 @@ load_dotenv()
 logger = get_logger("common")
 
 
+class AzureSearchCredential(TokenCredential):
+    """
+    Custom credential wrapper that requests tokens with the correct scope for Azure Search.
+    """
+    
+    def __init__(self, credential: TokenCredential):
+        self._credential = credential
+        self._scope = "https://search.azure.com/.default"
+    
+    def get_token(self, *scopes, **kwargs) -> AccessToken:
+        """Get a token for Azure Search with the correct scope."""
+        return self._credential.get_token(self._scope, **kwargs)
+
+
 class AzureSearchService:
     """
     Service for Azure AI Search operations including document indexing and vector search.
@@ -47,14 +62,16 @@ class AzureSearchService:
         self.index_name = index_name or "default-index"
         self.app_id = app_id
         
-        # Authentication setup
-        self.credential = DefaultAzureCredential()
+        # Authentication setup with correct scope for Azure Search
+        base_credential = DefaultAzureCredential()
+        self.credential = AzureSearchCredential(base_credential)
         
         if not self.search_endpoint:
             raise ValueError("APP_SEARCH_ENDPOINT must be set in .env file or exported as environment variables")
         
         logger.info(f"Initializing Azure AI Search service with endpoint: {self.search_endpoint}")
         logger.info(f"Using index: {self.index_name}")
+        logger.info("Azure Search service configured with proper token scope: https://search.azure.com/.default")
         
         self.search_client = self._initialize_search_client()
         self.index_client = self._initialize_index_client()
