@@ -42,7 +42,14 @@ class AzureSearchCredential(TokenCredential):
     
     def get_token(self, *scopes, **kwargs) -> AccessToken:
         """Get a token for Azure Search with the correct scope."""
-        return self._credential.get_token(self._scope, **kwargs)
+        try:
+            logger.info(f"Requesting token with scope: {self._scope}")
+            token = self._credential.get_token(self._scope, **kwargs)
+            logger.info(f"Successfully obtained token (expires at: {token.expires_on})")
+            return token
+        except Exception as e:
+            logger.error(f"Failed to get token for Azure Search: {str(e)}")
+            raise
 
 
 class AzureSearchService:
@@ -408,10 +415,18 @@ class AzureSearchService:
             bool: True if the index exists, False otherwise
         """
         try:
-            await self.index_client.get_index(self.index_name)
+            logger.info(f"Checking if index '{self.index_name}' exists using endpoint: {self.search_endpoint}")
+            result = await self.index_client.get_index(self.index_name)
+            logger.info(f"Index '{self.index_name}' exists")
             return True
         except ResourceNotFoundError:
+            logger.info(f"Index '{self.index_name}' does not exist")
             return False
         except Exception as e:
             logger.error(f"Error checking if index exists: {str(e)}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            if hasattr(e, 'status_code'):
+                logger.error(f"HTTP Status Code: {e.status_code}")
+            if hasattr(e, 'message'):
+                logger.error(f"Error message: {e.message}")
             raise 
