@@ -35,7 +35,8 @@ class AzureSearchCredential(TokenCredential):
     Custom credential wrapper that requests tokens with the correct scope for Azure Search.
     """
     
-    def __init__(self, credential: TokenCredential):
+    def __init__(self, credential: Any):
+        """Initialize with any credential that has a get_token method."""
         self._credential = credential
         self._scope = "https://search.azure.com/.default"
     
@@ -63,7 +64,7 @@ class AzureSearchService:
         self.app_id = app_id
         
         # Authentication setup with correct scope for Azure Search
-        base_credential: TokenCredential = DefaultAzureCredential()
+        base_credential = DefaultAzureCredential()
         self.credential = AzureSearchCredential(base_credential)
         
         if not self.search_endpoint:
