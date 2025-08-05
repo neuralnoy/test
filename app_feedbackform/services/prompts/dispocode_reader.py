@@ -21,19 +21,17 @@ class DispocodeReader:
         """
         Load and filter dispocodes to get only hashtag entries.
         
-        Input format:
-        {
-          "dispoCodes": [
-            {
-              "id": "AC01",
-              "category": "some category",
-              "typeName": "hashtag",
-              "typeValue": "#SomeHashtag",
-              "hashtags": "",
-              "description": "Some description"
-            }
-          ]
-        }
+        Input format (direct array):
+        [
+          {
+            "id": "AC01",
+            "category": "some category",
+            "typeName": "hashtag",
+            "typeValue": "#SomeHashtag",
+            "hashtags": "",
+            "description": "Some description"
+          }
+        ]
         
         Output format:
         [
@@ -53,16 +51,9 @@ class DispocodeReader:
                 logger.warning(f"Dispocodes file not found at {self.json_path}")
                 return []
             
-            # Load the JSON file
+            # Load the JSON file - it's already a direct array
             with open(self.json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            # Check if dispoCodes key exists
-            if "dispoCodes" not in data:
-                logger.warning("No 'dispoCodes' key found in JSON file")
-                return []
-            
-            dispocodes = data["dispoCodes"]
+                dispocodes = json.load(f)
             
             # Filter for hashtag entries only (typeName == "hashtag")
             hashtag_entries = []
