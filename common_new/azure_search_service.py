@@ -63,7 +63,7 @@ class AzureSearchService:
         self.app_id = app_id
         
         # Authentication setup with correct scope for Azure Search
-        base_credential = DefaultAzureCredential()
+        base_credential: TokenCredential = DefaultAzureCredential()
         self.credential = AzureSearchCredential(base_credential)
         
         if not self.search_endpoint:
