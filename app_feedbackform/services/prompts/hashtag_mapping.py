@@ -1,163 +1,81 @@
 """
 Hashtag mapping for the feedback form application.
-This is a temporary generic mapping and will be replaced with actual business logic later.
+Loads hashtag data from dispocodes.json and converts to mapping format.
 """
+from app_feedbackform.services.prompts.dispocode_reader import get_dispocode_reader
+from common_new.logger import get_logger
 
-MAPPING_TABLE = [
-    {
-        "id": "P01",
-        "typeName": "Product",
-        "typeValue": "CREDIT_CARD",
-        "relatedTo": "Calls",
-        "description": "Problem with credit card"
-    },
-    {
-        "id": "C01",
-        "typeName": "Category",
-        "typeValue": "CARDS",
-        "relatedTo": "Calls",
-        "description": "Problem with cards" 
-    },
-    {
-        "id": "T01",
-        "typeName": "Topic",
-        "typeValue": "CREDIT_CARD_LOST_OR_STOLEN",
-        "relatedTo": "Calls",
-        "description": "User lost or had their credit card stolen"
-    },
-    {
-        "id": "S01",
-        "typeName": "Subtopic",
-        "typeValue": "American Express",
-        "relatedTo": "Calls",
-        "description": "Users complain is related to American Express" 
-    },
-    {
-        "id": "H01",
-        "typeName": "Hashtag",
-        "typeValue": "#CreditCardIssue",
-        "relatedTo": "Calls",
-        "description": "Problem with credit card" 
-    },
-    {
-        "id": "P02",
-        "typeName": "Product",
-        "typeValue": "LOAN",
-        "relatedTo": "Calls",
-        "description": "User has a problem with their credit card"
-    },
-    {
-        "id": "C02",
-        "typeName": "Category",
-        "typeValue": "LOANS",
-        "relatedTo": "Calls",
-        "description": "Problem with cards" 
-    },
-    {
-        "id": "T02",
-        "typeName": "Topic",
-        "typeValue": "LOAN_REPAYMENT",
-        "relatedTo": "Calls",
-        "description": "Problem with loan"
-    },
-    {
-        "id": "S02",
-        "typeName": "Subtopic",
-        "typeValue": "Mortgage",
-        "relatedTo": "Calls",
-        "description": "Problem with mortgage" 
-    },
-    {
-        "id": "H02",
-        "typeName": "Hashtag",
-        "typeValue": "#MortgageIssue",
-        "relatedTo": "Calls",
-        "description": "Problem with mortgage" 
-    },
-    {
-        "id": "P03",
-        "typeName": "Product",
-        "typeValue": "MORTGAGE",
-        "relatedTo": "Calls",
-        "description": "Problem with mortgage" 
-    },
-    {
-        "id": "C03",
-        "typeName": "Category",
-        "typeValue": "MORTGAGES",
-        "relatedTo": "Calls",
-        "description": "Problem with mortgages" 
-    },
-    {
-        "id": "T03",
-        "typeName": "Topic",
-        "typeValue": "MORTGAGE_REPAYMENT",
-        "relatedTo": "Calls",
-        "description": "Problem with mortgages" 
-    },
-    {
-        "id": "S03",
-        "typeName": "Subtopic",
-        "typeValue": "Mortgage",
-        "relatedTo": "Calls",
-        "description": "Problem with mortgages" 
-    },
-    {
-        "id": "H03",
-        "typeName": "Hashtag",
-        "typeValue": "#MortgageIssue",
-        "relatedTo": "Calls",
-        "description": "Problem with mortgages" 
-    },
-    {
-        "id": "C04",
-        "typeName": "Category",
-        "typeValue": "CARDS",
-        "relatedTo": "Forms",
-        "description": "Problem with cards" 
-    },
-    {
-        "id": "H04",
-        "typeName": "Hashtag",
-        "typeValue": "#CreditCardIssue",
-        "relatedTo": "Forms",
-        "description": "Problem with credit card" 
-    },
-    {
-        "id": "C05",
-        "typeName": "Category",
-        "typeValue": "LOANS",
-        "relatedTo": "Forms",
-        "description": "Problem with cards" 
-    },
-    {
-        "id": "H05",
-        "typeName": "Hashtag",
-        "typeValue": "#MortgageIssue",
-        "relatedTo": "Forms",
-        "description": "Problem with mortgage" 
-    },
-    {
-        "id": "C06",
-        "typeName": "Category",
-        "typeValue": "MORTGAGES",
-        "relatedTo": "Forms",
-        "description": "Problem with mortgages" 
-    },
-    {
-        "id": "H04",
-        "typeName": "Hashtag",
-        "typeValue": "#CreditCardIssue",
-        "relatedTo": "Forms",
-        "description": "Problem with credit card" 
-    }
-]
+logger = get_logger("prompts")
 
 def get_hashtag_mapping():
     """
-    Get the reason mapping dictionary.
+    Get the hashtag mapping dictionary from dispocodes.
+    
+    Converts from:
+    [
+      { 
+        "category": "some category",
+        "hashtag": "#SomeHashtag",
+        "description": "Some description"
+      }
+    ]
+    
+    To:
+    {
+      "SomeHashtag": {
+        "description": "some description",
+        "category": "some category"
+      }
+    }
     
     Returns:
-        dict: The reason mapping dictionary
+        dict: The hashtag mapping dictionary
     """
-    return MAPPING_TABLE 
+    try:
+        reader = get_dispocode_reader()
+        hashtag_entries = reader.load_hashtag_dispocodes()
+        
+        if not hashtag_entries:
+            logger.warning("No hashtag entries found in dispocodes")
+            # Return fallback mapping if no dispocodes available
+            return {
+                "general_feedback": {
+                    "description": "General feedback (fallback)",
+                    "category": "General"
+                }
+            }
+        
+        # Convert to the required format
+        hashtag_mapping = {}
+        for entry in hashtag_entries:
+            hashtag = entry.get('hashtag', '')
+            category = entry.get('category', '')
+            description = entry.get('description', '')
+            
+            # Remove the # sign from hashtag to use as key
+            if hashtag.startswith('#'):
+                hashtag_key = hashtag[1:]  # Remove the first character (#)
+            else:
+                hashtag_key = hashtag
+            
+            # Skip empty hashtags
+            if not hashtag_key:
+                continue
+                
+            hashtag_mapping[hashtag_key] = {
+                "description": description,
+                "category": category
+            }
+        
+        logger.info(f"Loaded {len(hashtag_mapping)} hashtag mappings from dispocodes")
+        return hashtag_mapping
+        
+    except Exception as e:
+        logger.error(f"Error loading hashtag mapping from dispocodes: {e}")
+        # Return fallback mapping on error
+        return {
+            "processing_error": {
+                "description": "Error loading hashtag options",
+                "category": "Error"
+            }
+        } 
