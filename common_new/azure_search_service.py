@@ -9,8 +9,8 @@ from typing import List, Dict, Any, Optional, Union
 
 from azure.identity import DefaultAzureCredential
 from azure.core.credentials import AccessToken, TokenCredential
-from azure.search.documents import SearchClient
-from azure.search.documents.indexes import SearchIndexClient
+from azure.search.documents.aio import SearchClient
+from azure.search.documents.indexes.aio import SearchIndexClient
 from azure.search.documents.indexes.models import (
     SearchIndex,
     VectorSearch,
@@ -298,15 +298,15 @@ class AzureSearchService:
             logger.error(f"Error getting document count: {str(e)}")
             raise
     
-    def close(self):
+    async def close(self):
         """
         Close the search client connections.
         """
         try:
             if hasattr(self.search_client, 'close'):
-                self.search_client.close()
+                await self.search_client.close()
             if hasattr(self.index_client, 'close'):
-                self.index_client.close()
+                await self.index_client.close()
             logger.debug("Azure Search service connections closed")
         except Exception as e:
             logger.warning(f"Error closing Azure Search connections: {str(e)}")
