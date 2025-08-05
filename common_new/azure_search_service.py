@@ -8,7 +8,6 @@ import os
 from typing import List, Dict, Any, Optional, Union
 
 from azure.identity import DefaultAzureCredential, AzureAuthorityHosts
-from azure.core.credentials import AccessToken, TokenCredential
 from azure.search.documents.aio import SearchClient
 from azure.search.documents.indexes.aio import SearchIndexClient
 from azure.search.documents.indexes.models import (
@@ -30,27 +29,6 @@ load_dotenv()
 logger = get_logger("common")
 
 
-class AzureSearchCredential(TokenCredential):
-    """
-    Custom credential wrapper that requests tokens with the correct scope for Azure Search.
-    """
-    
-    def __init__(self, credential: Any):
-        """Initialize with any credential that has a get_token method."""
-        self._credential = credential
-        self._scope = "https://search.azure.com/.default"
-    
-    def get_token(self, *scopes, **kwargs) -> AccessToken:
-        """Get a token for Azure Search with the correct scope."""
-        try:
-            logger.info(f"Requesting token with scope: {self._scope}")
-            token = self._credential.get_token(self._scope, **kwargs)
-            logger.info(f"Successfully obtained token (expires at: {token.expires_on})")
-            return token
-        except Exception as e:
-            logger.error(f"Failed to get token for Azure Search: {str(e)}")
-            raise
-
 
 class AzureSearchService:
     """
@@ -70,19 +48,17 @@ class AzureSearchService:
         self.index_name = index_name or "default-index"
         self.app_id = app_id
         
-        # Authentication setup with correct scope for Azure Search (following Microsoft's recommendation)
+        # Authentication setup (Microsoft's recommended approach)
         authority = AzureAuthorityHosts.AZURE_PUBLIC_CLOUD
-        base_credential = DefaultAzureCredential(authority=authority)
-        self.credential = AzureSearchCredential(base_credential)
+        self.credential = DefaultAzureCredential(authority=authority)
         
         if not self.search_endpoint:
             raise ValueError("APP_SEARCH_ENDPOINT must be set in .env file or exported as environment variables")
         
         logger.info(f"Initializing Azure AI Search service with endpoint: {self.search_endpoint}")
         logger.info(f"Using index: {self.index_name}")
-        logger.info("Azure Search service configured with Microsoft's recommended approach:")
-        logger.info("  - DefaultAzureCredential with explicit AZURE_PUBLIC_CLOUD authority")
-        logger.info("  - Custom credential wrapper with correct scope: https://search.azure.com/.default")
+        logger.info("Azure Search service configured with Microsoft's recommended approach")
+        logger.info("Using DefaultAzureCredential with explicit AZURE_PUBLIC_CLOUD authority")
         
         self.search_client = self._initialize_search_client()
         self.index_client = self._initialize_index_client()
@@ -418,18 +394,10 @@ class AzureSearchService:
             bool: True if the index exists, False otherwise
         """
         try:
-            logger.info(f"Checking if index '{self.index_name}' exists using endpoint: {self.search_endpoint}")
-            result = await self.index_client.get_index(self.index_name)
-            logger.info(f"Index '{self.index_name}' exists")
+            await self.index_client.get_index(self.index_name)
             return True
         except ResourceNotFoundError:
-            logger.info(f"Index '{self.index_name}' does not exist")
             return False
         except Exception as e:
             logger.error(f"Error checking if index exists: {str(e)}")
-            logger.error(f"Exception type: {type(e).__name__}")
-            if hasattr(e, 'status_code'):
-                logger.error(f"HTTP Status Code: {e.status_code}")
-            if hasattr(e, 'message'):
-                logger.error(f"Error message: {e.message}")
             raise 
