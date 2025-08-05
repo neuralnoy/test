@@ -7,7 +7,7 @@ Required Environment Variables:
 import os
 from typing import List, Dict, Any, Optional, Union
 
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, AzureAuthorityHosts
 from azure.core.credentials import AccessToken, TokenCredential
 from azure.search.documents.aio import SearchClient
 from azure.search.documents.indexes.aio import SearchIndexClient
@@ -70,8 +70,9 @@ class AzureSearchService:
         self.index_name = index_name or "default-index"
         self.app_id = app_id
         
-        # Authentication setup with correct scope for Azure Search
-        base_credential = DefaultAzureCredential()
+        # Authentication setup with correct scope for Azure Search (following Microsoft's recommendation)
+        authority = AzureAuthorityHosts.AZURE_PUBLIC_CLOUD
+        base_credential = DefaultAzureCredential(authority=authority)
         self.credential = AzureSearchCredential(base_credential)
         
         if not self.search_endpoint:
@@ -79,7 +80,9 @@ class AzureSearchService:
         
         logger.info(f"Initializing Azure AI Search service with endpoint: {self.search_endpoint}")
         logger.info(f"Using index: {self.index_name}")
-        logger.info("Azure Search service configured with proper token scope: https://search.azure.com/.default")
+        logger.info("Azure Search service configured with Microsoft's recommended approach:")
+        logger.info("  - DefaultAzureCredential with explicit AZURE_PUBLIC_CLOUD authority")
+        logger.info("  - Custom credential wrapper with correct scope: https://search.azure.com/.default")
         
         self.search_client = self._initialize_search_client()
         self.index_client = self._initialize_index_client()
