@@ -235,7 +235,7 @@ class AudioPreprocessor:
 
     def _resample_audio(self, audio_data: np.ndarray, original_sr: int, target_sr: int) -> np.ndarray:
         """
-        Resample audio data to target sample rate.
+        Resample audio data to target sample rate using SoXR.
         
         Args:
             audio_data: Input audio data
@@ -246,15 +246,22 @@ class AudioPreprocessor:
             np.ndarray: Resampled audio data
         """
         try:
-            import librosa
+            import soxr
             
-            # Use librosa for high-quality resampling
-            resampled = librosa.resample(audio_data, orig_sr=original_sr, target_sr=target_sr)
-            logger.info(f"Resampled audio: {len(audio_data)} -> {len(resampled)} samples")
+            # Use SoXR for fastest, highest-quality resampling
+            resampled = soxr.resample(audio_data, original_sr, target_sr)
+            logger.info(f"Resampled audio with SoXR: {len(audio_data)} -> {len(resampled)} samples")
             return resampled
             
+        except ImportError:
+            logger.warning("SoXR not available, falling back to simple interpolation")
+            # Fallback: simple decimation/interpolation
+            ratio = target_sr / original_sr
+            new_length = int(len(audio_data) * ratio)
+            return np.interp(np.linspace(0, len(audio_data), new_length), 
+                           np.arange(len(audio_data)), audio_data)
         except Exception as e:
-            logger.error(f"Error resampling audio: {str(e)}")
+            logger.error(f"Error resampling audio with SoXR: {str(e)}")
             # Fallback: simple decimation/interpolation
             ratio = target_sr / original_sr
             new_length = int(len(audio_data) * ratio)
