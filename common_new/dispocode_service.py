@@ -182,9 +182,9 @@ class DispocodeService:
         
         vector_search_algorithm = VectorSearchAlgorithmConfiguration(
             name="vector-config",
-            kind=VectorSearchAlgorithmKind.HNSW,
+            kind="hnsw",
             parameters={
-                "metric": VectorSearchAlgorithmMetric.COSINE
+                "metric": "cosine"
             },
         )
 

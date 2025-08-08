@@ -330,12 +330,9 @@ class AzureSearchService:
                     algorithms=[
                         VectorSearchAlgorithmConfiguration(
                             name="vector-config",
-                            kind=VectorSearchAlgorithmKind.HNSW,
+                            kind="hnsw",
                             parameters={
-                                "m": 4,  # Number of bi-directional links per node
-                                "efConstruction": 400,  # Size of the dynamic candidate list
-                                "efSearch": 500,  # Size of the dynamic candidate list for search
-                                "metric": VectorSearchAlgorithmMetric.COSINE
+                                "metric": "cosine"
                             }
                         )
                     ],
