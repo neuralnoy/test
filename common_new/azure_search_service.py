@@ -142,7 +142,7 @@ class AzureSearchService:
                 top=top,
                 select=select,
                 filter=filter_expression,
-                order_by=order_by
+                orderby=order_by
             )
             
             # Convert results to list
@@ -342,7 +342,7 @@ class AzureSearchService:
                     profiles=[
                         VectorSearchProfile(
                             name="vector-profile",
-                            algorithm="vector-config"
+                            algorithm_configuration_name="vector-config"
                         )
                     ]
                 )

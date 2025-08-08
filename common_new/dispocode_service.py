@@ -13,6 +13,8 @@ from azure.search.documents.indexes.models import (
     VectorSearch,
     VectorSearchAlgorithmConfiguration,
     VectorSearchProfile,
+    VectorSearchAlgorithmKind,
+    VectorSearchAlgorithmMetric,
 )
 
 from common_new.logger import get_logger
@@ -164,11 +166,11 @@ class DispocodeService:
     async def _create_search_index(self):
         fields = [
             SimpleField(name="id", type="Edm.String", key=True, filterable=True, sortable=True),
-            SearchableField(name="category", filterable=True, sortable=True),
-            SearchableField(name="typeName", filterable=True, sortable=True),
-            SearchableField(name="typeValue", filterable=True, sortable=True),
-            SearchableField(name="hashtags", filterable=True),
-            SearchableField(name="description"),
+            SearchableField(name="category", type="Edm.String", filterable=True, sortable=True),
+            SearchableField(name="typeName", type="Edm.String", filterable=True, sortable=True),
+            SearchableField(name="typeValue", type="Edm.String", filterable=True, sortable=True),
+            SearchableField(name="hashtags", type="Collection(Edm.String)", filterable=True),
+            SearchableField(name="description", type="Edm.String"),
             SearchField(
                 name=self.vector_field_name,
                 type="Collection(Edm.Single)",
@@ -180,6 +182,10 @@ class DispocodeService:
         
         vector_search_algorithm = VectorSearchAlgorithmConfiguration(
             name="vector-config",
+            kind=VectorSearchAlgorithmKind.HNSW,
+            parameters={
+                "metric": VectorSearchAlgorithmMetric.COSINE
+            },
         )
 
         vector_search = VectorSearch(
