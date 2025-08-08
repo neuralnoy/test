@@ -17,7 +17,10 @@ from azure.search.documents.indexes.models import (
     VectorSearchAlgorithmKind,
     VectorSearchAlgorithmMetric,
     VectorSearchProfile,
-    SearchField
+    SearchField,
+    SearchFieldDataType,
+    HnswAlgorithmConfiguration,
+    HnswParameters,
 )
 from azure.search.documents.models import VectorizedQuery
 from azure.core.exceptions import ResourceNotFoundError, HttpResponseError
@@ -145,8 +148,8 @@ class AzureSearchService:
                 orderby=order_by
             )
             
-            # Convert results to list
-            search_results = [result async for result in results]
+            # Convert results to list of dicts (as in quickstart notebooks)
+            search_results = [dict(result) async for result in results]
             
             logger.debug(f"Found {len(search_results)} results")
             return search_results
@@ -193,8 +196,8 @@ class AzureSearchService:
                 top=top
             )
             
-            # Convert results to list
-            search_results = [result async for result in results]
+            # Convert results to list of dicts (as in quickstart notebooks)
+            search_results = [dict(result) async for result in results]
             
             logger.debug(f"Found {len(search_results)} vector search results")
             return search_results
@@ -328,20 +331,17 @@ class AzureSearchService:
             if vector_search is None:
                 vector_search = VectorSearch(
                     algorithms=[
-                        VectorSearchAlgorithmConfiguration(
+                        HnswAlgorithmConfiguration(
                             name="vector-config",
-                            kind="hnsw",
-                            parameters={
-                                "metric": "cosine"
-                            }
+                            parameters=HnswParameters(metric="cosine"),
                         )
                     ],
                     profiles=[
                         VectorSearchProfile(
                             name="vector-profile",
-                            algorithm_configuration_name="vector-config"
+                            algorithm_configuration_name="vector-config",
                         )
-                    ]
+                    ],
                 )
 
             # Verify vector field exists if vector search is enabled

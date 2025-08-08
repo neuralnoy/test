@@ -15,6 +15,9 @@ from azure.search.documents.indexes.models import (
     VectorSearchProfile,
     VectorSearchAlgorithmKind,
     VectorSearchAlgorithmMetric,
+    SearchFieldDataType,
+    HnswAlgorithmConfiguration,
+    HnswParameters,
 )
 
 from common_new.logger import get_logger
@@ -165,27 +168,24 @@ class DispocodeService:
 
     async def _create_search_index(self):
         fields = [
-            SimpleField(name="id", type="Edm.String", key=True, filterable=True, sortable=True),
-            SearchableField(name="category", type="Edm.String", filterable=True, sortable=True),
-            SearchableField(name="typeName", type="Edm.String", filterable=True, sortable=True),
-            SearchableField(name="typeValue", type="Edm.String", filterable=True, sortable=True),
-            SearchableField(name="hashtags", type="Collection(Edm.String)", filterable=True),
-            SearchableField(name="description", type="Edm.String"),
+            SimpleField(name="id", type=SearchFieldDataType.String, key=True, filterable=True, sortable=True),
+            SearchableField(name="category", type=SearchFieldDataType.String, filterable=True, sortable=True),
+            SearchableField(name="typeName", type=SearchFieldDataType.String, filterable=True, sortable=True),
+            SearchableField(name="typeValue", type=SearchFieldDataType.String, filterable=True, sortable=True),
+            SearchableField(name="hashtags", type=SearchFieldDataType.Collection(SearchFieldDataType.String), filterable=True),
+            SearchableField(name="description", type=SearchFieldDataType.String),
             SearchField(
                 name=self.vector_field_name,
-                type="Collection(Edm.Single)",
+                type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
                 searchable=True,
                 vector_search_dimensions=self.vector_dimensions,
                 vector_search_profile_name="vector-profile",
             ),
         ]
         
-        vector_search_algorithm = VectorSearchAlgorithmConfiguration(
+        vector_search_algorithm = HnswAlgorithmConfiguration(
             name="vector-config",
-            kind="hnsw",
-            parameters={
-                "metric": "cosine"
-            },
+            parameters=HnswParameters(metric="cosine"),
         )
 
         vector_search = VectorSearch(
