@@ -1,11 +1,8 @@
-# service_bus.py
 import asyncio
 import json
-import time
-from typing import Callable, Any, Optional
+from typing import Callable, Any
 from azure.servicebus.aio import ServiceBusClient
 from azure.servicebus import ServiceBusMessage
-from azure.servicebus.exceptions import ServiceBusError, ServiceBusConnectionError
 from azure.identity.aio import DefaultAzureCredential
 
 from common_new.logger import get_logger
