@@ -1,6 +1,5 @@
 # data_processor.py
 import json
-import asyncio
 from typing import Dict, Any, Optional
 from common_new.logger import get_logger
 from app_reasoner.models.schemas import InputReasoner, OutputReasoner, InternalReasonerResult
@@ -118,18 +117,3 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
         except:
             # If we can't even create a proper error response, return None
             return None
-
-# USAGE EXAMPLE: To use the new structured validation with Instructor/Pydantic:
-#
-# from app_reasoner.services.prompts.call_processor import process_call_structured
-# 
-# # Replace the line:
-# # success, result = await process_call(form_data.text)
-# 
-# # With:
-# # success, structured_result = await process_call_structured(form_data.text)
-# 
-# # The structured_result will be a validated CallProcessingResponse Pydantic model
-# # with automatic validation, better error handling, and type safety.
-# # You can access fields directly: structured_result.summary, structured_result.reason, etc.
-# # The response is guaranteed to match the expected schema or raise a ValidationError. 

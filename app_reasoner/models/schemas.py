@@ -212,3 +212,6 @@ class ReasonerProcessingResponse(BaseModel):
     summary_native: str = Field(
         description="Detailed summary of the call transcript in the native language WITHOUT mentioning any PII or CID"
     )
+    contains_pii_or_cid: Literal["Yes", "No"] = Field(
+        description="Indicates whether the original call transcript contains any PII or CID"
+    )

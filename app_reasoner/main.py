@@ -6,16 +6,21 @@ from fastapi import FastAPI
 from common_new.service_bus import AsyncServiceBusHandler
 from common_new.logger import get_logger
 from common_new.pom_reader import get_pom_version
-from app_reasoner.services.data_processor import process_data
+from common_new.dispocode_service import DispocodeService
+from app_feedbackform.services.data_processor import process_data
+from dotenv import load_dotenv
 
-logger = get_logger("reasoner_app")
+load_dotenv()
 
+logger = get_logger("app_reasoner")
+
+# Global time variable to track the new deployment start time
 start_time = datetime.now(timezone.utc)
 
 # Get service bus connection details from environment variables
-FULLY_QUALIFIED_NAMESPACE = os.getenv("SERVICE_BUS_NAMESPACE")
-IN_QUEUE_NAME = os.getenv("APP_SB_IN_QUEUE", "reason-iq")
-OUT_QUEUE_NAME = os.getenv("APP_SB_OUT_QUEUE", "reason-oq")
+FULLY_QUALIFIED_NAMESPACE = os.getenv("APP_SB_FULLY_QUALIFIED_NAMESPACE")
+IN_QUEUE_NAME = os.getenv("APP_SERVICE_IN_QUEUE", "reason_iq")
+OUT_QUEUE_NAME = os.getenv("APP_SERVICE_OUT_QUEUE", "reason_oq")
 
 # Initialize service bus handler with DefaultAzureCredential
 logger.info(f"Using DefaultAzureCredential for Service Bus authentication with namespace: {FULLY_QUALIFIED_NAMESPACE}")
@@ -26,6 +31,9 @@ service_bus_handler = AsyncServiceBusHandler(
     fully_qualified_namespace=FULLY_QUALIFIED_NAMESPACE
 )
 
+dispocode_service: DispocodeService | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -33,15 +41,25 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events for the service bus handler.
     """
     # Startup logic
-    logger.info("Starting Feedback Form Processor app")
-    
+    global dispocode_service
+    logger.info("Starting Reasoner - Call Processor app")
+
+    # Initialize and start the DispocodeService
+    dispocode_endpoint = os.getenv("DISPOCODE_ENDPOINT_URL")
+    if dispocode_endpoint:
+        dispocode_service = DispocodeService(endpoint_url=dispocode_endpoint)
+        await dispocode_service.start()
+        app.state.dispocode_service = dispocode_service
+    else:
+        logger.warning("DISPOCODE_ENDPOINT_URL not set. DispocodeService will not run.")
+
     # Initialize log monitoring service if configured
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
-    account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
-    account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
-    container_name = os.getenv("AZURE_LOGS_CONTAINER_NAME", "application-logs")
-    scan_interval = int(os.getenv("LOG_SCAN_INTERVAL", "60"))
-    app_name = os.getenv("APP_NAME")  # Get app name from environment variables
+    account_name = os.getenv("APP_BLOB_ACCOUNT_NAME")
+    account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL", None)
+    container_name = os.getenv("APP_BLOB_CONTAINER_NAME_LOGS", "fla-logs")
+    scan_interval = int(os.getenv("APP_LOG_SCAN_INTERVAL", "300"))
+    app_name = os.getenv("APP_NAME_FOR_LOGGER")  # Get app name from environment variables
     
     # Only initialize if blob storage is configured (either by URL or account name)
     if account_url or account_name:
@@ -75,23 +93,30 @@ async def lifespan(app: FastAPI):
     yield  # This is where the app runs
     
     # Shutdown logic
-    logger.info("Shutting down Call Reasoner app")
+    logger.info("Shutting down Reasoner - Call Processor app")
     
     # Shut down the log monitor if it was initialized
     if hasattr(app.state, "log_monitor"):
         logger.info("Shutting down log monitor service")
         await app.state.log_monitor.shutdown()
-    
+
+    # Stop the dispocode service if it was initialized
+    if dispocode_service:
+        logger.info("Shutting down DispocodeService.")
+        await dispocode_service.stop()
+
     # Stop the service bus handler
     await service_bus_handler.stop()
     logger.info("Service bus handler stopped")
 
-app = FastAPI(title="Feedback Form Processor", lifespan=lifespan)
+
+app = FastAPI(title="Reasoner - Call Processor", lifespan=lifespan)
+
 
 @app.get("/")
 def read_root():
     return {
-        "app": "Feedback Form Processor",
+        "app": "Reasoner - Call Processor",
         "version": get_pom_version(),
         "status": "running",
         "start_time": start_time.isoformat(),
@@ -102,7 +127,13 @@ def read_root():
         }
     }
 
+
 @app.get("/health")
 def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service_bus_running": service_bus_handler.running}
+    dispocode_running = dispocode_service._is_running if dispocode_service else False
+    return {
+        "status": "healthy", 
+        "service_bus_running": service_bus_handler.running,
+        "dispocode_service_running": dispocode_running
+    }

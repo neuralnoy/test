@@ -1,12 +1,11 @@
 """
 Call processor service that uses Azure OpenAI to process call transcripts.
 """
-import json
-from typing import Dict, Any, Tuple
+from typing import Tuple
 from pydantic import ValidationError
 from common_new.azure_openai_service import AzureOpenAIService
 from common_new.logger import get_logger
-from app_reasoner.models.schemas import CallProcessingResponse
+from app_reasoner.models.schemas import ReasonerProcessingResponse
 from app_reasoner.services.prompts.reason_mapping import get_reason_mapping
 from app_reasoner.services.prompts.prompts import get_system_prompt, get_user_prompt
 
@@ -40,7 +39,7 @@ def _format_reason_options() -> str:
     
     return "\n".join(options)
 
-async def process_call_structured(text: str, max_retries: int = 3) -> Tuple[bool, CallProcessingResponse]:
+async def process_call_structured(text: str, max_retries: int = 3) -> Tuple[bool, ReasonerProcessingResponse]:
     """
     Process call transcript using Instructor for structured, validated outputs.
     
@@ -49,108 +48,72 @@ async def process_call_structured(text: str, max_retries: int = 3) -> Tuple[bool
         max_retries: Maximum number of retries on failure
         
     Returns:
-        Tuple[bool, CallProcessingResponse]: (success flag, validated response)
+        Tuple[bool, ReasonerProcessingResponse]: (success flag, validated response)
     """
-    reason_options = _format_reason_options()
-    
-    try:
-        logger.info("Processing call transcript with structured validation")
-        
-        # Use the enhanced service for structured completion
-        response = await ai_service.structured_prompt(
-            response_model=CallProcessingResponse,
-            system_prompt=SYSTEM_PROMPT,
-            user_prompt=USER_PROMPT,
-            variables={"text": text, "reason_options": reason_options},
-            temperature=0.3,
-            max_retries=max_retries
-        )
-        
-        logger.info(f"PII or CID detected: {response.contains_pii_or_cid}")
-        logger.info("Successfully processed call transcript with validation")
-        
-        return True, response
-        
-    except ValidationError as e:
-        logger.error(f"Validation error in AI response: {str(e)}")
-        # Create a fallback response
-        fallback_response = CallProcessingResponse(
-            summary="Failed to process call transcript due to validation errors",
-            reason="#error",
-            ai_reason="#validation_failed",
-            contains_pii_or_cid="No"
-        )
-        return False, fallback_response
-        
-    except Exception as e:
-        logger.error(f"Error processing call transcript: {str(e)}")
-        # Create a fallback response
-        fallback_response = CallProcessingResponse(
-            summary="Failed to process call transcript after multiple attempts",
-            reason="#error", 
-            ai_reason="#processing_failed",
-            contains_pii_or_cid="No"
-        )
-        return False, fallback_response
 
-async def process_call(text: str, max_retries: int = 3) -> Tuple[bool, Dict[str, Any]]:
-    """
-    Process call transcript using OpenAI to summarize, categorize, and sanitize.
-    
-    Args:
-        text: The call transcript to process
-        max_retries: Maximum number of retries on failure
-        
-    Returns:
-        Tuple[bool, Dict[str, Any]]: (success flag, processed data)
-    """
-    # Format reason options for the prompt
     reason_options = _format_reason_options()
-    
-    # Attempt processing with retries
+
     for attempt in range(max_retries):
         try:
-            logger.info(f"Processing call transcript (attempt {attempt + 1}/{max_retries})")
+            logger.info("Processing call transcript with structured validation")
             
-            # Send the prompt to the AI service
-            # The send_prompt method now handles token rate limit retries internally
-            response = await ai_service.send_prompt(
+            # Use the enhanced service for structured completion
+            response = await ai_service.structured_prompt(
+                response_model=ReasonerProcessingResponse,
                 system_prompt=SYSTEM_PROMPT,
                 user_prompt=USER_PROMPT,
                 variables={"text": text, "reason_options": reason_options},
-                temperature=0.3  # Lower temperature for more deterministic results
+                temperature=0.0,
+                max_retries=max_retries
             )
             
-            # Parse the JSON response
-            result = json.loads(response)
+            logger.info(f"PII or CID detected: {response.contains_pii_or_cid}")
+            logger.info("Successfully processed call transcript with validation")
             
-            # Validate required fields
-            required_fields = ["summary", "reason", "ai_reason", "contains_pii_or_cid"]
-            if all(field in result for field in required_fields):
-                # Log whether PII or CID was detected
-                logger.info(f"PII or CID detected: {result['contains_pii_or_cid']}")
-                logger.info("Successfully processed call transcript")
-                return True, result
-            else:
-                missing_fields = [field for field in required_fields if field not in result]
-                logger.warning(f"Response missing required fields: {missing_fields}")
-                
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {str(e)}")
+            return True, response
+            
+        except ValidationError as e:
+            logger.error(f"Validation error in AI response: {str(e)}")
+            
         except Exception as e:
             logger.error(f"Error processing call transcript: {str(e)}")
         
         # If not the final attempt, log and retry
         if attempt < max_retries - 1:
             logger.info(f"Retrying call transcript processing (attempt {attempt + 2}/{max_retries})")
-    
     # If all retries failed, return failure with error message
     error_result = {
-        "summary": "Failed to process call transcript after multiple attempts",
-        "reason": "#error",
-        "ai_reason": "#processing_failed",
-        "contains_pii_or_cid": "Unknown",
-        "error": "Processing failed after maximum retry attempts"
+        "ai_generated": False,
+        "ai_hashtags": [],
+        "ai_hashtags_native": [],
+        "authentication": "Unknown",
+        "call_flags": "EXTERN",
+        "call_reason": "Unknown",
+        "call_triggers": "Unknown",
+        "call_triggers_native": "Unknown",
+        "caller_authentication": "Unknown",
+        "category": "Unknown",
+        "client_lifecycle_event": "Unknown",
+        "entry_point": "Unknown",
+        "hashtags": [],
+        "live_help": "No",
+        "product": [],
+        "product_cluster": "Unknown",
+        "resolution": {
+            "CALLBACK": "Unknown",
+            "CALL_TRANSFER": "Unknown",
+            "CONTACT_BRANCH": "Unknown"
+        },
+        "resolution_flag": "Unknown",
+        "self_service": "Unknown",
+        "sentiment": "Unknown",
+        "speaker": {
+            "Speaker 1": "Unknown",
+            "Speaker 2": "Unknown"
+        },
+        "subtopics": "Unknown",
+        "summary": "Unknown",
+        "summary_native": "Unknown"
     }
     
     return False, error_result 
