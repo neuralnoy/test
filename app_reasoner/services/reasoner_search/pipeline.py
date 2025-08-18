@@ -14,8 +14,6 @@ class Pipeline:
         # Step 2: Search against the dispocode index (placeholder)
         await self._search_dispocode_index()
 
-        # Step 3: Classify with GPT (placeholder)
-        await self._classify_with_gpt()
 
     async def _index_incoming_message(self, message_data: dict):
         logger.info(f"Indexing message id: {message_data.get('id')}")
@@ -28,7 +26,3 @@ class Pipeline:
         logger.info("Searching dispocode index (placeholder)")
         pass
 
-    async def _classify_with_gpt(self):
-        # This is a placeholder for the logic to classify with GPT
-        logger.info("Classifying with GPT (placeholder)")
-        pass

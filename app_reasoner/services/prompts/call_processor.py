@@ -50,7 +50,7 @@ async def process_call_structured(text: str, max_retries: int = 3) -> Tuple[bool
     Returns:
         Tuple[bool, ReasonerProcessingResponse]: (success flag, validated response)
     """
-
+    # TODO: Add the reason options to the prompt here with the use of pipeline
     reason_options = _format_reason_options()
 
     for attempt in range(max_retries):
