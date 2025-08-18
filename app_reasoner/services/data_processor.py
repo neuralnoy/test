@@ -26,8 +26,8 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
         # Validate data using existing Pydantic model
         call_data = InputReasoner(**data_dict)
                 
-        # Process the text using Azure OpenAI
-        success, result = await process_call_structured(call_data.text)
+        # Process the message data using Azure OpenAI
+        success, result = await process_call_structured(call_data)
         
         if success:
             # Create internal result with PII/CID detection information for logging
