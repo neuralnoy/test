@@ -1,7 +1,7 @@
 from common_new.logger import get_logger
-from app_reasoner.services.reasoner_search.reasoner_search_service import ReasonerSearchService
+from app_reasoner.services.reasoner_search.text_embed_and_store import ReasonerSearchService
 
-logger = get_logger("reasoner_pipeline")
+logger = get_logger("reasoner_search")
 
 class Pipeline:
     def __init__(self):

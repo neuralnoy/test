@@ -12,7 +12,7 @@ from common_new.logger import get_logger
 from common_new.azure_search_service import AzureSearchService
 from common_new.azure_embedding_service import AzureEmbeddingService
 
-logger = get_logger("reasoner_search_service")
+logger = get_logger("reasoner_search")
 
 class ReasonerSearchService:
     def __init__(self, index_name: str = "reasoner-index"):
