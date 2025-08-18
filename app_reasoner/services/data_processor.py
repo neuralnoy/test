@@ -2,10 +2,12 @@
 import json
 from typing import Dict, Any, Optional
 from common_new.logger import get_logger
+from app_reasoner.services.reasoner_search.pipeline import Pipeline
 from app_reasoner.models.schemas import InputReasoner, OutputReasoner, InternalReasonerResult
-from app_reasoner.services.prompts.call_processor import process_call
+from app_reasoner.services.prompts.call_processor import process_call_structured
 
 logger = get_logger("reasoner_processor")
+pipeline = Pipeline()
 
 async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
     """
@@ -26,8 +28,11 @@ async def process_data(message_body: str) -> Optional[Dict[str, Any]]:
         # Validate data using existing Pydantic model
         form_data = InputReasoner(**data_dict)
         
+        # Run the processing pipeline
+        await pipeline.run(form_data.model_dump())
+        
         # Process the text using Azure OpenAI
-        success, result = await process_call(form_data.text)
+        success, result = await process_call_structured(form_data.text)
         
         if success:
             # Create internal result with PII/CID detection information for logging
