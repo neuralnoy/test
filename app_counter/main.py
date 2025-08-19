@@ -47,14 +47,31 @@ EMBEDDING_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_EMBEDDING_RPM_QUOTA", "6000
 # Get Whisper rate limit from environment variables or use default
 WHISPER_RATE_LIMIT_PER_MINUTE = int(os.getenv("APP_WHISPER_RPM_QUOTA", "15"))
 
-# Azure AD Configuration using specific variables
+# Azure AD Configuration
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
-# Replace with your Azure AD Application (Client) ID
+# API's own client ID
 CLIENT_ID = os.getenv("APP_COUNTER_API_CLIENT_ID")
-# Replace with the Client ID of the caller application
+# Comma-separated list of allowed audiences (UAMI client IDs, API client ID, etc.)
 AUDIENCES = os.getenv("APP_AUDIENCES")
-# Replace with your API's audience
-effective_audiences = re.split(',\s*', AUDIENCES) if AUDIENCES and len(AUDIENCES) > 0 else [CLIENT_ID, f"api://{CLIENT_ID}"]
+
+# Build effective audiences list to support both Service Principal and UAMI authentication
+# Include: API's own client ID, API scope, and any explicitly configured audiences (UAMI client IDs)
+effective_audiences = []
+if AUDIENCES and len(AUDIENCES.strip()) > 0:
+    # Parse configured audiences (typically UAMI client IDs)
+    effective_audiences.extend(re.split(r',\s*', AUDIENCES))
+    logger.info(f"Configured audiences: {effective_audiences}")
+else:
+    logger.info("No explicit audiences configured")
+
+# Always include the API's own client ID and scope for backward compatibility
+if CLIENT_ID:
+    effective_audiences.extend([CLIENT_ID, f"api://{CLIENT_ID}"])
+    logger.info(f"Added API client ID and scope to audiences: {CLIENT_ID}, api://{CLIENT_ID}")
+
+# Remove duplicates while preserving order
+effective_audiences = list(dict.fromkeys(effective_audiences))
+logger.info(f"Final effective audiences: {effective_audiences}")
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2AuthorizationCodeBearer(
@@ -121,7 +138,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict:
             detail="No token provided",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return await validate_azure_jwt(token, TENANT_ID, AUDIENCES)
+    return await validate_azure_jwt(token, TENANT_ID, effective_audiences)
 
 
 # Initialize the token counter and rate counter services

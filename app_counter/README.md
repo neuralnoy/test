@@ -77,13 +77,23 @@ The Token Counter Service is a comprehensive microservice that provides token us
 
 ### Environment Variables
 ```bash
-# Completion Service Limits
+# Service Limits
 APP_TPM_QUOTA=128000        # Completion tokens per minute
 APP_RPM_QUOTA=250           # Completion requests per minute
-
-# Embedding Service Limits  
 APP_EMBEDDING_TPM_QUOTA=1000000  # Embedding tokens per minute
 APP_EMBEDDING_RPM_QUOTA=6000      # Embedding requests per minute
+APP_WHISPER_RPM_QUOTA=15    # Whisper requests per minute
+
+# Authentication Configuration
+AZURE_TENANT_ID=your-tenant-id                    # Azure AD tenant ID
+APP_COUNTER_API_CLIENT_ID=your-api-client-id      # Counter API's client ID
+APP_COUNTER_API_SCOPE=api://your-api-client-id/.default  # Scope for accessing the counter API
+
+# UAMI Authentication (recommended)
+APP_AUDIENCES=uami-1-client-id,uami-2-client-id   # Comma-separated UAMI client IDs allowed to access the API
+
+# Legacy Service Principal (deprecated - remove after UAMI migration)
+# APP_COUNTER_API_CLIENT_SECRET=your-client-secret   # Service principal secret (remove after UAMI migration)
 ```
 
 ### Default Values
@@ -91,6 +101,38 @@ APP_EMBEDDING_RPM_QUOTA=6000      # Embedding requests per minute
 - **Completion Requests**: 250 per minute
 - **Embedding Tokens**: 1,000,000 per minute (higher for bulk operations)
 - **Embedding Requests**: 6000 per minute
+- **Whisper Requests**: 15 per minute
+
+## Authentication
+
+### User-Assigned Managed Identity (UAMI) Authentication
+
+The service now uses **DefaultAzureCredential** for authentication, supporting multiple authentication methods with UAMI as the recommended approach:
+
+#### Benefits of UAMI
+- ✅ No client secret management required
+- ✅ Automatic credential rotation
+- ✅ Enhanced security posture
+- ✅ Simplified deployment and operations
+- ✅ Consistent with other Azure services in the codebase
+
+#### Configuration
+1. **Deploy applications with UAMI**: Assign User-Assigned Managed Identity to your Azure resources (App Service, Container Instances, AKS, etc.)
+2. **Configure UAMI client ID**: Set `APP_COUNTER_API_CLIENT_ID` to your UAMI's client ID
+3. **Update audiences**: Add all UAMI client IDs to `APP_AUDIENCES` environment variable
+4. **Grant permissions**: Ensure UAMI has access to the counter service scope
+
+#### Migration from Service Principal
+- **Remove**: `APP_COUNTER_API_CLIENT_SECRET` environment variable
+- **Keep**: `APP_COUNTER_API_CLIENT_ID` (now used for UAMI specification)
+- **Update**: `APP_AUDIENCES` to include UAMI client IDs
+- **Deploy**: Applications with UAMI assigned to Azure resources
+
+### Authentication Flow
+1. **Client**: Uses DefaultAzureCredential to obtain token for `APP_COUNTER_API_SCOPE`
+2. **Token**: Contains audience claim matching UAMI client ID
+3. **Server**: Validates token against configured `effective_audiences` list
+4. **Success**: Request is authenticated and processed
 
 ## API Endpoints
 
