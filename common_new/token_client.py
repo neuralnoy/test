@@ -5,7 +5,7 @@ from common_new.logger import get_logger
 import time
 import asyncio
 from dotenv import load_dotenv
-from azure.identity.aio import DefaultAzureCredential
+from azure.identity.aio import ManagedIdentityCredential
 
 load_dotenv()
 
@@ -40,25 +40,21 @@ class TokenClient:
         self.timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         self._credential = None
         
-        # Use DefaultAzureCredential for authentication (supports UAMI, Service Principal, etc.)
-        # This aligns with other Azure services in the codebase
+        # Use ManagedIdentityCredential for production authentication
+        # This provides deterministic, fast, and secure authentication for Azure-hosted applications
         try:
-            # If a specific client ID is provided, use it for UAMI
+            # If a specific client ID is provided, use User-Assigned Managed Identity
             if COUNTER_API_CLIENT_ID:
-                self._credential = DefaultAzureCredential(
-                    managed_identity_client_id=COUNTER_API_CLIENT_ID,
-                    retry_total=3,
-                    retry_backoff_factor=1
+                self._credential = ManagedIdentityCredential(
+                    client_id=COUNTER_API_CLIENT_ID
                 )
-                logger.info(f"Initialized DefaultAzureCredential with UAMI client ID: {COUNTER_API_CLIENT_ID}")
+                logger.info(f"Initialized ManagedIdentityCredential with UAMI client ID: {COUNTER_API_CLIENT_ID}")
             else:
-                self._credential = DefaultAzureCredential(
-                    retry_total=3,
-                    retry_backoff_factor=1
-                )
-                logger.info("Initialized DefaultAzureCredential with default authentication chain")
+                # Use System-Assigned Managed Identity
+                self._credential = ManagedIdentityCredential()
+                logger.info("Initialized ManagedIdentityCredential with system-assigned identity")
         except Exception as e:
-            logger.warning(f"Failed to initialize Azure credentials: {e}. Will make unauthenticated requests.")
+            logger.warning(f"Failed to initialize ManagedIdentityCredential: {e}. Will make unauthenticated requests.")
             self._credential = None
        
     async def _get_auth_header(self) -> Dict[str, str]:
@@ -70,7 +66,7 @@ class TokenClient:
             token = await self._credential.get_token(COUNTER_API_SCOPE)
             return {"Authorization": f"Bearer {token.token}"}
         except Exception as e:
-            logger.error(f"Failed to acquire token for scope {COUNTER_API_SCOPE} using DefaultAzureCredential: {e}")
+            logger.error(f"Failed to acquire token for scope {COUNTER_API_SCOPE} using ManagedIdentityCredential: {e}")
             return {}
 
     async def _make_request_with_retry(self, method: str, url: str, data: Optional[Dict] = None,
