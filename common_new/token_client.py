@@ -25,20 +25,21 @@ class TokenClient:
     Applications can use this to lock tokens, report usage, and release tokens.
     Includes timeout handling for long-running operations.
     """
-    def __init__(self, app_id: str, base_url: str = BASE_URL, timeout_seconds: int = 1800):
+    def __init__(self, app_id: str, base_url: str = BASE_URL, timeout_seconds: int = 300):
         """
         Initialize the token client.
         
         Args:
             app_id: The ID of the application using this client
             base_url: The base URL of the token counter service
-            timeout_seconds: Timeout for HTTP requests in seconds (default: 30 minutes for long operations)
+            timeout_seconds: Timeout for HTTP requests in seconds (default: 5 minutes for rate limiting operations)
         """
 
         self.app_id = app_id
         self.base_url = base_url.rstrip("/")
         self.timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         self._credential = None
+        self._session = None  # Track session for cleanup
         
         # Use ManagedIdentityCredential for production authentication
         # This provides deterministic, fast, and secure authentication for Azure-hosted applications
@@ -69,6 +70,17 @@ class TokenClient:
             logger.error(f"Failed to acquire token for scope {COUNTER_API_SCOPE} using ManagedIdentityCredential: {e}")
             return {}
 
+    async def close(self):
+        """Close any open aiohttp sessions to prevent unclosed session warnings."""
+        if self._session and not self._session.closed:
+            try:
+                await self._session.close()
+                logger.debug(f"Closed TokenClient session for app_id: {self.app_id}")
+            except Exception as e:
+                logger.debug(f"Error closing TokenClient session: {e}")
+            finally:
+                self._session = None
+
     async def _make_request_with_retry(self, method: str, url: str, data: Optional[Dict] = None,
                                        max_retries: int = 3) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
@@ -89,22 +101,26 @@ class TokenClient:
         
         for attempt in range(max_retries):
             try:
-                async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                    if method.upper() == 'GET':
-                        async with session.get(url, headers=headers) as response:
-                            if response.status == 200:
-                                response_data = await response.json()
-                                return True, response_data, None
-                            else:
-                                error_data = await response.json() if response.content_type == 'application/json' else {}
-                                return False, error_data, error_data.get("message", f"HTTP {response.status}")
-                    else:  # POST
-                        async with session.post(url, json=data, headers=headers) as response:
+                # Use or create session, but don't use context manager to allow reuse
+                if self._session is None or self._session.closed:
+                    self._session = aiohttp.ClientSession(timeout=self.timeout)
+                session = self._session
+                
+                if method.upper() == 'GET':
+                    async with session.get(url, headers=headers) as response:
+                        if response.status == 200:
                             response_data = await response.json()
-                            if response.status == 200:
-                                return True, response_data, None
-                            else:
-                                return False, response_data, response_data.get("message", f"HTTP {response.status}")
+                            return True, response_data, None
+                        else:
+                            error_data = await response.json() if response.content_type == 'application/json' else {}
+                            return False, error_data, error_data.get("message", f"HTTP {response.status}")
+                else:  # POST
+                    async with session.post(url, json=data, headers=headers) as response:
+                        response_data = await response.json()
+                        if response.status == 200:
+                            return True, response_data, None
+                        else:
+                            return False, response_data, response_data.get("message", f"HTTP {response.status}")
                                 
             except (aiohttp.ServerTimeoutError, asyncio.TimeoutError) as e:
                 last_exception = e

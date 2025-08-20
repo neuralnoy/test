@@ -62,6 +62,14 @@ async def with_token_limit_retry(
                     wait_time = token_status["reset_time_seconds"] + 1  # Add 1 second buffer
                     logger.debug(f"RETRY: Status retrieved: {token_status}")
                     
+                    # Close any open sessions in the token client before long wait
+                    if hasattr(token_client, 'close'):
+                        try:
+                            await token_client.close()
+                            logger.debug(f"RETRY: Closed token client sessions before waiting")
+                        except Exception as close_err:
+                            logger.debug(f"RETRY: Error closing token client: {close_err}")
+                    
                     # Use different log messages based on the type of limit
                     if "Whisper rate limit" in error_msg:
                         logger.info(f"RETRY: Whisper rate limit exceeded. Waiting {wait_time} seconds before retry (attempt {attempt+1}/{max_retries}).")
@@ -156,6 +164,21 @@ async def with_whisper_rate_limit_retry(
                 if whisper_status and "reset_time_seconds" in whisper_status:
                     wait_time = whisper_status["reset_time_seconds"] + 2  # Add 2 second buffer for Whisper
                     logger.debug(f"WHISPER RETRY: Status retrieved: {whisper_status}")
+                    
+                    # Close any open sessions in the whisper token client before long wait
+                    if hasattr(whisper_token_client, 'close'):
+                        try:
+                            await whisper_token_client.close()
+                            logger.debug(f"WHISPER RETRY: Closed whisper token client sessions before waiting")
+                        except Exception as close_err:
+                            logger.debug(f"WHISPER RETRY: Error closing whisper token client: {close_err}")
+                    elif hasattr(whisper_token_client, 'token_client') and hasattr(whisper_token_client.token_client, 'close'):
+                        # Handle wrapper classes like WhisperTokenClientWrapper
+                        try:
+                            await whisper_token_client.token_client.close()
+                            logger.debug(f"WHISPER RETRY: Closed underlying token client sessions before waiting")
+                        except Exception as close_err:
+                            logger.debug(f"WHISPER RETRY: Error closing underlying token client: {close_err}")
                     
                     logger.info(f"WHISPER RETRY: Whisper rate limit exceeded. Waiting {wait_time} seconds before retry (attempt {attempt+1}/{max_retries}).")
                     
