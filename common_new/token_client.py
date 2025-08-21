@@ -5,7 +5,7 @@ from common_new.logger import get_logger
 import time
 import asyncio
 from dotenv import load_dotenv
-from azure.identity.aio import ManagedIdentityCredential
+from azure.identity.aio import DefaultAzureCredential
 
 load_dotenv()
 
@@ -41,21 +41,16 @@ class TokenClient:
         self._credential = None
         self._session = None  # Track session for cleanup
         
-        # Use ManagedIdentityCredential for production authentication
-        # This provides deterministic, fast, and secure authentication for Azure-hosted applications
+        # Use DefaultAzureCredential for authentication
+        # This provides flexible authentication that works across development and production environments
         try:
-            # If a specific client ID is provided, use User-Assigned Managed Identity
+            self._credential = DefaultAzureCredential()
             if COUNTER_API_CLIENT_ID:
-                self._credential = ManagedIdentityCredential(
-                    client_id=COUNTER_API_CLIENT_ID
-                )
-                logger.info(f"Initialized ManagedIdentityCredential with UAMI client ID: {COUNTER_API_CLIENT_ID}")
+                logger.info(f"Initialized DefaultAzureCredential (will prefer UAMI with client ID: {COUNTER_API_CLIENT_ID})")
             else:
-                # Use System-Assigned Managed Identity
-                self._credential = ManagedIdentityCredential()
-                logger.info("Initialized ManagedIdentityCredential with system-assigned identity")
+                logger.info("Initialized DefaultAzureCredential")
         except Exception as e:
-            logger.warning(f"Failed to initialize ManagedIdentityCredential: {e}. Will make unauthenticated requests.")
+            logger.warning(f"Failed to initialize DefaultAzureCredential: {e}. Will make unauthenticated requests.")
             self._credential = None
        
     async def _get_auth_header(self) -> Dict[str, str]:
@@ -67,7 +62,7 @@ class TokenClient:
             token = await self._credential.get_token(COUNTER_API_SCOPE)
             return {"Authorization": f"Bearer {token.token}"}
         except Exception as e:
-            logger.error(f"Failed to acquire token for scope {COUNTER_API_SCOPE} using ManagedIdentityCredential: {e}")
+            logger.error(f"Failed to acquire token for scope {COUNTER_API_SCOPE} using DefaultAzureCredential: {e}")
             return {}
 
     async def close(self):
