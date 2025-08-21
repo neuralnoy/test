@@ -1,3 +1,7 @@
+"""
+Step 1 of the reasoner search pipeline.
+This module is responsible for embedding and storing the call transcript in the Azure Search service.
+"""
 from azure.search.documents.indexes.models import (
     SimpleField,
     SearchableField,
@@ -14,8 +18,8 @@ from common_new.azure_embedding_service import AzureEmbeddingService
 
 logger = get_logger("reasoner_search")
 
-class ReasonerSearchService:
-    def __init__(self, index_name: str = "reasoner-index"):
+class EmbedAndStoreService:
+    def __init__(self, index_name: str = "call-reasoner-index"):
         self.search_service = AzureSearchService(index_name=index_name)
         self.embedding_service = AzureEmbeddingService()
         self.vector_field_name = "text_vector"
@@ -57,15 +61,22 @@ class ReasonerSearchService:
         else:
             logger.info(f"Index '{self.search_service.index_name}' already exists.")
 
-    async def embed_and_upload_document(self, document: dict):
+    async def embed_and_upload_document(self, document: dict) -> list[float]:
         text_to_embed = document.get("text")
         if not text_to_embed:
             logger.warning("Document has no 'text' field to embed. Skipping.")
-            return
+            raise ValueError("Document has no 'text' field")
 
         logger.info(f"Creating embedding for document id: {document.get('id')}")
-        embedding = await self.embedding_service.create_embedding(text=text_to_embed)
+        embedding_list = await self.embedding_service.create_embedding(text=text_to_embed)
+        
+        if not embedding_list:
+            logger.error(f"Failed to create embedding for document id: {document.get('id')}")
+            raise ValueError("Embedding creation failed")
+
+        embedding = embedding_list[0]
         document[self.vector_field_name] = embedding
         
         await self.search_service.upload_documents([document])
         logger.info(f"Successfully uploaded document id: {document.get('id')}")
+        return embedding

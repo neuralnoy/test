@@ -52,7 +52,7 @@ TENANT_ID = os.getenv("AZURE_TENANT_ID")
 # API's own client ID
 CLIENT_ID = os.getenv("APP_COUNTER_API_CLIENT_ID")
 # Comma-separated list of allowed audiences (UAMI client IDs, API client ID, etc.)
-AUDIENCES = os.getenv("APP_AUDIENCES")
+AUDIENCES = os.getenv("APP_COUNTER_API_AUDIENCES")
 
 # Build effective audiences list to support both Service Principal and UAMI authentication
 # Include: API's own client ID, API scope, and any explicitly configured audiences (UAMI client IDs)
@@ -99,6 +99,30 @@ async def validate_azure_jwt(token: str, tenant_id: str, audiences: List[str]) -
             audience=audiences,
             issuer=[f"https://login.microsoftonline.com/{tenant_id}/v2.0", f"https://sts.windows.net/{tenant_id}/"]
         )
+        
+        # Additional client ID validation if CLIENT_ID is configured
+        if CLIENT_ID:
+            token_client_id = payload.get('appid') or payload.get('azp')
+            if not token_client_id:
+                logger.error("Token does not contain client ID (appid or azp claim)")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token format - missing client ID",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+                
+            if token_client_id != CLIENT_ID:
+                logger.error(f"Invalid client ID in token: {token_client_id}, expected: {CLIENT_ID}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Unauthorized client ID",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            logger.debug(f"Client ID validation passed: {token_client_id}")
+        else:
+            logger.debug("Client ID validation skipped - no CLIENT_ID configured")
+        
         return payload
     except ExpiredSignatureError:
         logger.error("Token has expired")
