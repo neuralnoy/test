@@ -11,46 +11,7 @@ logger = get_logger("businesslogic")
 
 class TranscriptionPostProcessor:
     
-    def _compress_intra_word_repetitions(self, text: str) -> str:
-        """
-        Within each whitespace-delimited token, detect any substring that repeats
-        consecutively more than 3 times and compress it to a single occurrence
-        followed by ellipsis ("..."). Works for any characters (letters, digits,
-        punctuation). Example: "hahahahaha" -> "ha...", "ababababx" -> "ab...x",
-        "$20,999,999,999" -> "$20,999...".
-        """
-        if not text:
-            return text
 
-        def compress_token(token: str) -> str:
-            if len(token) < 4:
-                return token
-
-            while True:
-                made_change = False
-                max_pattern_len = len(token) // 4
-                for pattern_len in range(max_pattern_len, 0, -1):
-                    # Only positions where 4 repeats are possible
-                    last_start = len(token) - pattern_len * 4
-                    for start_idx in range(0, last_start + 1):
-                        pattern = token[start_idx : start_idx + pattern_len]
-                        repeat_count = 1
-                        pos = start_idx + pattern_len
-                        while pos + pattern_len <= len(token) and token[pos : pos + pattern_len] == pattern:
-                            repeat_count += 1
-                            pos += pattern_len
-                        if repeat_count > 3:
-                            token = token[:start_idx] + pattern + "..." + token[pos:]
-                            made_change = True
-                            break
-                    if made_change:
-                        break
-                if not made_change:
-                    return token
-
-        tokens = text.split()
-        compressed_tokens = [compress_token(t) for t in tokens]
-        return " ".join(compressed_tokens)
     
     def _clean_repetition(self, text: str) -> str:
         """
@@ -118,11 +79,8 @@ class TranscriptionPostProcessor:
             # First, normalize whitespace for all segments
             normalized_text = " ".join(segment.text.split())
             
-            # Compress intra-word repetitions (any substring repeated > 3 times)
-            intra_word_cleaned = self._compress_intra_word_repetitions(normalized_text)
-            
-            # Then, clean for repeated word-sequence hallucinations
-            cleaned_text = self._clean_repetition(intra_word_cleaned)
+            # Clean for repeated word-sequence hallucinations
+            cleaned_text = self._clean_repetition(normalized_text)
             
             # Format speaker ID
             formatted_speaker_id = segment.speaker_id.replace('_', ' ')
